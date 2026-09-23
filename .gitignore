@@ -2,3 +2,4 @@ config.php
 data/*
 !data/.htaccess
 .DS_Store
+crm.zip
