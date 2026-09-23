@@ -37,9 +37,11 @@ $chequeos = [
     ['Extensión zip (importar planillas .xlsx)', class_exists('ZipArchive'), 'Sin ella solo se pueden importar planillas .csv.'],
     ['Conexión a internet (cURL)', function_exists('curl_init') || ini_get('allow_url_fopen'), 'Necesaria para obtener la UF automáticamente.'],
     ['Llave de cifrado', llave_existe(), llave_existe() ? llave_ruta() : 'No existe todavía: créela abajo.'],
-    ['Llave fuera de la carpeta pública', !llave_existe() || !$dentroWeb(llave_ruta()), 'Mueva la llave fuera de public_html (config "llave_archivo").'],
+    ['Llave fuera de la carpeta pública', $llaveFuera = !llave_existe() || !$dentroWeb(llave_ruta()),
+        $llaveFuera ? 'Correcto.' : 'Mueva la llave fuera de public_html (config "llave_archivo").'],
     ['Carpeta de documentos escribible', $docsOk, $dirDocs],
-    ['Documentos fuera de la carpeta pública', !$dentroWeb($dirDocs . '/x'), 'Recomendado: config "documentos_ruta" fuera de public_html.'],
+    ['Documentos fuera de la carpeta pública', $docsFuera = !$dentroWeb($dirDocs . '/x'),
+        $docsFuera ? 'Correcto.' : 'Recomendado: config "documentos_ruta" fuera de public_html.'],
 ];
 $migraciones = q_todos('SELECT * FROM migraciones ORDER BY aplicada_en');
 $indicadoresRecientes = q_todos('SELECT * FROM indicadores ORDER BY fecha DESC, codigo LIMIT 12');
@@ -53,7 +55,7 @@ layout_inicio('Sistema', 'sistema');
     <?php foreach ($chequeos as [$texto, $ok, $detalle]): ?>
         <tr><td><?= $ok ? '✅' : '⚠️' ?></td><td><?= e($texto) ?></td><td class="tenue"><?= e($detalle) ?></td></tr>
     <?php endforeach; ?>
-        <tr><td>ℹ️</td><td>Verificación en dos pasos para credenciales</td><td class="tenue"><?= credenciales_requieren_2fa() ? 'Exigida' : 'Opcional (se pide la contraseña para mostrar cada clave). Se cambia con "credenciales_requiere_2fa" en config.php.' ?></td></tr>
+        <tr><td>ℹ️</td><td>Verificación en dos pasos para credenciales</td><td class="tenue"><?= credenciales_requieren_2fa() ? 'Exigida' : 'Opcional (se pide la contraseña para mostrar cada clave). Se cambia con "credenciales_requiere_2fa" en config.local.php.' ?></td></tr>
         <tr><td>ℹ️</td><td>Tamaño máximo de subida</td><td class="tenue"><?= e(ini_get('upload_max_filesize')) ?> por archivo · <?= e(ini_get('post_max_size')) ?> por envío</td></tr>
     </tbody></table>
 </section>
