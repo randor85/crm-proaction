@@ -88,7 +88,7 @@ function nulo_si_vacio(string $v): ?string
 
 function dinero($monto): string
 {
-    return config('moneda', '$') . ' ' . number_format((float)$monto, 2, ',', '.');
+    return config('moneda', '$') . ' ' . number_format((float)$monto, (int)config('decimales', 0), ',', '.');
 }
 
 function fecha($valor, bool $conHora = false): string

@@ -73,7 +73,7 @@ if ($accion === 'form') {
     <form method="post" action="<?= e(url('empresas', ['a' => 'guardar', 'id' => $id])) ?>" class="formulario rejilla">
         <?= csrf_campo() ?>
         <div><?= campo('nombre', 'Nombre / Razón social *', $e['nombre'] ?? '', 'text', 'required maxlength="150"') ?></div>
-        <div><?= campo('identificacion', 'Identificación fiscal (RUT, NIT, RFC…)', $e['identificacion'] ?? '') ?></div>
+        <div><?= campo('identificacion', 'RUT / Identificación fiscal', $e['identificacion'] ?? '') ?></div>
         <div><?= campo('sector', 'Sector / Industria', $e['sector'] ?? '') ?></div>
         <div><?= campo('telefono', 'Teléfono', $e['telefono'] ?? '', 'tel') ?></div>
         <div><?= campo('email', 'Correo', $e['email'] ?? '', 'email') ?></div>
@@ -117,7 +117,7 @@ if ($accion === 'ver' && $id) {
         <section class="panel">
             <h2>Datos</h2>
             <dl class="ficha">
-                <dt>Identificación</dt><dd><?= e($e['identificacion']) ?></dd>
+                <dt>RUT</dt><dd><?= e($e['identificacion']) ?></dd>
                 <dt>Sector</dt><dd><?= e($e['sector']) ?></dd>
                 <dt>Teléfono</dt><dd><?= e($e['telefono']) ?></dd>
                 <dt>Correo</dt><dd><?php if ($e['email']): ?><a href="mailto:<?= e($e['email']) ?>"><?= e($e['email']) ?></a><?php endif; ?></dd>

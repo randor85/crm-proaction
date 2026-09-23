@@ -78,7 +78,7 @@ if ($accion === 'form') {
         <div class="completo"><?= campo('titulo', 'Título *', $o['titulo'] ?? '', 'text', 'required maxlength="150" placeholder="Ej.: Renovación de licencias 2027"') ?></div>
         <div><?= selector('empresa_id', 'Empresa', opciones_empresas(), $o['empresa_id'] ?? '') ?></div>
         <div><?= selector('contacto_id', 'Contacto', opciones_contactos(), $o['contacto_id'] ?? '') ?></div>
-        <div><?= campo('monto', 'Monto estimado (' . config('moneda', '$') . ')', $o['monto'] ?? '', 'number', 'step="0.01" min="0"') ?></div>
+        <div><?= campo('monto', 'Monto estimado (' . config('moneda', '$') . ')', $o['monto'] ?? '', 'number', 'step="' . (config('decimales', 0) > 0 ? '0.01' : '1') . '" min="0"') ?></div>
         <div><?= selector('etapa', 'Etapa', ETAPAS, $o['etapa'] ?? 'prospecto', false) ?></div>
         <div><?= campo('probabilidad', 'Probabilidad (%)', $o['probabilidad'] ?? '', 'number', 'min="0" max="100"') ?></div>
         <div><?= campo('fecha_cierre', 'Fecha de cierre estimada', $o['fecha_cierre'] ?? '', 'date') ?></div>

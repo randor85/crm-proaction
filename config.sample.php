@@ -18,9 +18,11 @@ return [
     ],
 
     // Zona horaria: https://www.php.net/manual/es/timezones.php
-    'zona_horaria' => 'America/Mexico_City',
+    'zona_horaria' => 'America/Santiago',
 
     'moneda' => '$',
+    // Decimales en montos (0 para pesos chilenos, 2 para dólares/euros)
+    'decimales' => 0,
 
     // Restricción de intranet: lista de IPs o rangos CIDR con acceso.
     // Vacío = sin restricción (se recomienda restringir).
