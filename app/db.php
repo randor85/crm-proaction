@@ -90,9 +90,43 @@ function opciones_usuarios(): array
     return array_column(q_todos('SELECT id, nombre FROM usuarios WHERE activo = 1 ORDER BY nombre'), 'nombre', 'id');
 }
 
-function opciones_empresas(): array
+function opciones_empresas(?int $clienteId = null): array
 {
-    return array_column(q_todos('SELECT id, nombre FROM empresas ORDER BY nombre'), 'nombre', 'id');
+    $filas = $clienteId
+        ? q_todos('SELECT id, nombre, identificacion FROM empresas WHERE cliente_id = ? ORDER BY nombre', [$clienteId])
+        : q_todos('SELECT id, nombre, identificacion FROM empresas ORDER BY nombre');
+    $op = [];
+    foreach ($filas as $f) {
+        $op[$f['id']] = $f['nombre'] . ($f['identificacion'] ? ' (' . $f['identificacion'] . ')' : '');
+    }
+    return $op;
+}
+
+function opciones_clientes(bool $soloActivos = true): array
+{
+    $where = $soloActivos ? 'WHERE activo = 1' : '';
+    return array_column(q_todos("SELECT id, nombre FROM clientes $where ORDER BY nombre"), 'nombre', 'id');
+}
+
+/** Empresa → cliente, para filtrar los selectores de RUT según el cliente elegido. */
+function mapa_empresa_cliente(): array
+{
+    return array_column(q_todos('SELECT id, cliente_id FROM empresas'), 'cliente_id', 'id');
+}
+
+function opciones_tareas_abiertas(?int $clienteId = null): array
+{
+    $params = [];
+    $where = "WHERE t.estado <> 'completada'";
+    if ($clienteId) {
+        $where .= ' AND t.cliente_id = ?';
+        $params[] = $clienteId;
+    }
+    $op = [];
+    foreach (q_todos("SELECT t.id, t.titulo, c.nombre AS cliente FROM tareas t LEFT JOIN clientes c ON c.id = t.cliente_id $where ORDER BY c.nombre, t.vencimiento", $params) as $t) {
+        $op[$t['id']] = ($t['cliente'] ? $t['cliente'] . ' · ' : '') . $t['titulo'];
+    }
+    return $op;
 }
 
 function opciones_contactos(): array

@@ -5,7 +5,8 @@ require __DIR__ . '/app/bootstrap.php';
 
 requerir_login();
 
-$modulos = ['dashboard', 'empresas', 'contactos', 'oportunidades', 'actividades', 'usuarios', 'perfil'];
+$modulos = ['dashboard', 'clientes', 'empresas', 'tareas', 'actividades', 'facturas', 'documentos', 'credenciales',
+    'contactos', 'oportunidades', 'usuarios', 'perfil', 'sistema', 'buscar'];
 $ruta = entrada('r', 'dashboard');
 
 if (!in_array($ruta, $modulos, true)) {

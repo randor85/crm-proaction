@@ -3,10 +3,15 @@ declare(strict_types=1);
 
 const MENU = [
     'dashboard'     => 'Inicio',
+    'clientes'      => 'Clientes',
     'empresas'      => 'Empresas',
+    'tareas'        => 'Tareas',
+    'actividades'   => 'Gestiones',
+    'facturas'      => 'Facturación',
+    'documentos'    => 'Documentos',
+    'credenciales'  => 'Credenciales',
     'contactos'     => 'Contactos',
     'oportunidades' => 'Oportunidades',
-    'actividades'   => 'Actividades',
 ];
 
 function layout_inicio(string $titulo, string $rutaActiva = ''): void
@@ -22,6 +27,7 @@ function layout_inicio(string $titulo, string $rutaActiva = ''): void
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($titulo) ?> · <?= e($app) ?></title>
     <link rel="stylesheet" href="assets/style.css">
+    <?php if ($u): ?><meta name="csrf" content="<?= e(csrf_token()) ?>"><?php endif; ?>
 </head>
 <body>
 <?php if ($u): ?>
@@ -34,8 +40,14 @@ function layout_inicio(string $titulo, string $rutaActiva = ''): void
         <?php endforeach; ?>
         <?php if (es_admin()): ?>
             <a href="<?= e(url('usuarios')) ?>" class="<?= $rutaActiva === 'usuarios' ? 'activo' : '' ?>">Usuarios</a>
+            <a href="<?= e(url('sistema')) ?>" class="<?= $rutaActiva === 'sistema' ? 'activo' : '' ?>">Sistema</a>
         <?php endif; ?>
     </nav>
+    <form class="buscador" method="get" action="index.php" role="search">
+        <input type="hidden" name="r" value="buscar">
+        <input type="search" name="q" id="buscar-global" placeholder="Buscar nombre o RUT…  ( / )" aria-label="Buscar en todo el CRM"
+            value="<?= $rutaActiva === 'buscar' ? e(entrada('q')) : '' ?>">
+    </form>
     <div class="usuario">
         <a href="<?= e(url('perfil')) ?>"><?= e($u['nombre']) ?></a>
         <a href="logout.php" class="salir">Salir</a>
@@ -43,6 +55,9 @@ function layout_inicio(string $titulo, string $rutaActiva = ''): void
 </header>
 <?php endif; ?>
 <main class="contenido">
+    <?php if ($u && !empty($_SESSION['clave_debil'])): ?>
+        <div class="alerta alerta-aviso">Su contraseña no cumple la política de seguridad del CRM. <a href="<?= e(url('perfil')) ?>#contrasena">Cámbiela en Mi perfil</a>.</div>
+    <?php endif; ?>
     <?php foreach (tomar_flashes() as $f): ?>
         <div class="alerta alerta-<?= e($f['tipo']) ?>"><?= e($f['mensaje']) ?></div>
     <?php endforeach; ?>
@@ -53,6 +68,7 @@ function layout_fin(): void
 {
     ?>
 </main>
+<script src="assets/app.js"></script>
 </body>
 </html>
 <?php
@@ -117,11 +133,11 @@ function historial_actividades(array $actividades, array $vinculo): void
     ?>
     <section class="panel">
         <div class="encabezado">
-            <h2>Actividades</h2>
-            <a href="<?= e(url('actividades', ['a' => 'form'] + $vinculo)) ?>">+ Registrar actividad</a>
+            <h2>Gestiones</h2>
+            <a href="<?= e(url('actividades', ['a' => 'form'] + $vinculo)) ?>">+ Registrar gestión</a>
         </div>
         <?php if (!$actividades): ?>
-            <p class="vacio">Sin actividades registradas.</p>
+            <p class="vacio">Sin gestiones registradas.</p>
         <?php else: ?>
         <ul class="linea-tiempo">
             <?php foreach ($actividades as $a): ?>
@@ -136,4 +152,181 @@ function historial_actividades(array $actividades, array $vinculo): void
         <?php endif; ?>
     </section>
     <?php
+}
+
+/* ---------------- Gestión tributaria ---------------- */
+
+function badge_tarea(string $estado): string
+{
+    return '<span class="badge tarea-' . e($estado) . '">' . e(ESTADOS_TAREA[$estado] ?? $estado) . '</span>';
+}
+
+function badge_factura(string $estado): string
+{
+    return '<span class="badge factura-' . e($estado) . '">' . e(ESTADOS_FACTURA[$estado] ?? $estado) . '</span>';
+}
+
+/** Clase CSS según cercanía del vencimiento: vencida, pronto (3 días) o nada. */
+function clase_vencimiento(?string $vencimiento, string $estado = 'pendiente'): string
+{
+    if (!$vencimiento || $estado === 'completada') {
+        return '';
+    }
+    $hoy = date('Y-m-d');
+    if ($vencimiento < $hoy) {
+        return 'vencida';
+    }
+    return $vencimiento <= date('Y-m-d', strtotime('+3 days')) ? 'pronto' : '';
+}
+
+/**
+ * Selector de empresa (RUT) cuyas opciones se filtran según el cliente elegido
+ * en el selector #f_cliente_id (ver assets/app.js).
+ */
+function selector_empresa(string $nombre, string $etiqueta, $actual = '', $vacio = true): string
+{
+    $id = 'f_' . $nombre;
+    $filas = q_todos('SELECT id, nombre, identificacion, cliente_id FROM empresas ORDER BY nombre');
+    $html = '<label for="' . $id . '">' . e($etiqueta) . '</label>'
+        . '<select id="' . $id . '" name="' . e($nombre) . '" data-filtrar-cliente>';
+    if ($vacio) {
+        $html .= '<option value="">' . e(is_string($vacio) ? $vacio : '— Seleccione —') . '</option>';
+    }
+    foreach ($filas as $f) {
+        $sel = ((string)$f['id'] === (string)$actual) ? ' selected' : '';
+        $texto = $f['nombre'] . ($f['identificacion'] ? ' (' . $f['identificacion'] . ')' : '');
+        $html .= '<option value="' . e($f['id']) . '" data-cliente="' . e($f['cliente_id']) . '"' . $sel . '>' . e($texto) . '</option>';
+    }
+    return $html . '</select>';
+}
+
+/** @param array $vinculo p. ej. ['cliente_id' => 3] o ['empresa_id' => 8] */
+function panel_tareas(array $tareas, array $vinculo, string $titulo = 'Tareas pendientes'): void
+{
+    ?>
+    <section class="panel">
+        <div class="encabezado">
+            <h2><?= e($titulo) ?></h2>
+            <a href="<?= e(url('tareas', ['a' => 'form'] + $vinculo)) ?>">+ Nueva tarea</a>
+        </div>
+        <?php if (!$tareas): ?>
+            <p class="vacio">Sin tareas pendientes.</p>
+        <?php else: ?>
+        <table><tbody>
+        <?php foreach ($tareas as $t): ?>
+            <tr class="<?= clase_vencimiento($t['vencimiento'], $t['estado']) ?>">
+                <td class="nowrap"><?= e(fecha($t['vencimiento'])) ?></td>
+                <td><a href="<?= e(url('tareas', ['a' => 'ver', 'id' => $t['id']])) ?>"><?= e($t['titulo']) ?></a>
+                    <?php if (!empty($t['empresa'])): ?><small class="tenue"> · <?= e($t['empresa']) ?></small><?php endif; ?></td>
+                <td><?= badge_tarea($t['estado']) ?></td>
+                <td class="tenue"><?= e($t['responsable'] ?? '') ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+function panel_facturas(array $facturas, array $vinculo): void
+{
+    ?>
+    <section class="panel">
+        <div class="encabezado">
+            <h2>Facturación</h2>
+            <a href="<?= e(url('facturas', ['a' => 'form'] + $vinculo)) ?>">+ Registrar documento</a>
+        </div>
+        <?php if (!$facturas): ?>
+            <p class="vacio">Sin documentos registrados.</p>
+        <?php else: ?>
+        <table>
+            <thead><tr><th>Emisión</th><th>Documento</th><th>Glosa</th><th>Estado</th><th class="derecha">Total</th></tr></thead>
+            <tbody>
+            <?php foreach ($facturas as $f): ?>
+                <tr>
+                    <td class="nowrap"><?= e(fecha($f['fecha_emision'])) ?></td>
+                    <td><?= e(TIPOS_DOCUMENTO_VENTA[$f['tipo_documento']] ?? '') ?><?= $f['folio'] ? ' N° ' . e($f['folio']) : '' ?></td>
+                    <td><a href="<?= e(url('facturas', ['a' => 'form', 'id' => $f['id']])) ?>"><?= e($f['glosa']) ?></a></td>
+                    <td><?= badge_factura($f['estado']) ?></td>
+                    <td class="derecha nowrap"><?= e(dinero($f['total'])) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+function panel_documentos(array $documentos, array $vinculo): void
+{
+    ?>
+    <section class="panel">
+        <div class="encabezado">
+            <h2>Documentos</h2>
+            <a href="<?= e(url('documentos', ['a' => 'form'] + $vinculo)) ?>">+ Subir documento</a>
+        </div>
+        <?php if (!$documentos): ?>
+            <p class="vacio">Sin documentos.</p>
+        <?php else: ?>
+        <table><tbody>
+        <?php foreach ($documentos as $d): ?>
+            <tr>
+                <td><a href="<?= e(url('documentos', ['a' => 'descargar', 'id' => $d['id']])) ?>"><?= e($d['nombre']) ?></a>
+                    <?php if (!empty($d['empresa'])): ?><small class="tenue"> · <?= e($d['empresa']) ?></small><?php endif; ?></td>
+                <td><span class="badge"><?= e(CATEGORIAS_DOCUMENTO[$d['categoria']] ?? $d['categoria']) ?></span></td>
+                <td class="tenue nowrap"><?= e($d['periodo'] ?? '') ?></td>
+                <td class="tenue nowrap derecha"><?= e(tamano_legible((int)$d['tamano'])) ?> · <?= e(fecha($d['creado_en'])) ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php endif; ?>
+        <p><a href="<?= e(url('documentos', $vinculo)) ?>">Ver todos los documentos →</a></p>
+    </section>
+    <?php
+}
+
+function panel_credenciales(array $credenciales, array $vinculo): void
+{
+    ?>
+    <section class="panel">
+        <div class="encabezado">
+            <h2>Credenciales</h2>
+            <?php if (puede_ver_credenciales()): ?><a href="<?= e(url('credenciales', ['a' => 'form'] + $vinculo)) ?>">+ Agregar</a><?php endif; ?>
+        </div>
+        <?php if (!puede_ver_credenciales()): ?>
+            <p class="vacio"><?= credenciales_requieren_2fa() ? 'Necesita permiso de credenciales y verificación en dos pasos activa para ver esta sección.' : 'Necesita permiso de credenciales (lo otorga un administrador en Usuarios).' ?></p>
+        <?php elseif (!$credenciales): ?>
+            <p class="vacio">Sin credenciales guardadas.</p>
+        <?php else: ?>
+        <table><tbody>
+        <?php foreach ($credenciales as $c): ?>
+            <tr>
+                <td><a href="<?= e(url('credenciales', ['a' => 'ver', 'id' => $c['id']])) ?>"><?= e($c['institucion']) ?></a>
+                    <?php if (!empty($c['empresa'])): ?><small class="tenue"> · <?= e($c['empresa']) ?></small><?php endif; ?></td>
+                <td><?= e($c['usuario']) ?></td>
+                <td class="tenue">••••••••</td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+/**
+ * Selector de una etiqueta de texto libre (categoría, situación): lista de valores existentes
+ * más "Otra…", que muestra un campo para escribir una nueva (ver assets/app.js).
+ * @param array $especiales opciones extra al inicio, valor => texto (p. ej. no cambiar / quitar)
+ */
+function selector_etiqueta(string $nombre, string $etiqueta, array $valores, ?string $actual, array $especiales = ['' => '— Sin asignar —']): string
+{
+    $id = 'f_' . $nombre;
+    $html = ($etiqueta !== '' ? '<label for="' . $id . '">' . e($etiqueta) . '</label>' : '')
+        . '<div class="etiqueta-libre"><select id="' . $id . '" name="' . e($nombre) . '" data-etiqueta>';
+    foreach ($especiales + ($valores ? array_combine($valores, $valores) : []) as $v => $t) {
+        $html .= '<option value="' . e($v) . '"' . ((string)$v === (string)$actual ? ' selected' : '') . '>' . e($t) . '</option>';
+    }
+    return $html . '<option value="__otra__">Otra… (escribir nueva)</option></select>'
+        . '<input type="text" name="' . e($nombre) . '_nueva" maxlength="80" placeholder="Escriba la nueva" hidden aria-label="Nueva ' . e(mb_strtolower($etiqueta ?: $nombre)) . '"></div>';
 }

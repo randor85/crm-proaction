@@ -7,6 +7,7 @@ declare(strict_types=1);
  * Por seguridad, elimine este archivo del servidor después de instalar.
  */
 
+define('INSTALANDO', true);
 require __DIR__ . '/app/bootstrap.php';
 
 function ya_instalado(): bool
@@ -39,8 +40,8 @@ if (es_post()) {
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errores[] = 'Ingrese un correo válido.';
     }
-    if (strlen($clave) < 8) {
-        $errores[] = 'La contraseña debe tener al menos 8 caracteres.';
+    if ($motivo = clave_debil($clave, $email, $nombre)) {
+        $errores[] = $motivo;
     }
 
     if (!$errores) {
@@ -49,6 +50,7 @@ if (es_post()) {
         foreach (array_filter(array_map('trim', explode(';', $sql))) as $sentencia) {
             db()->exec($sentencia);
         }
+        migraciones_aplicar();
         insertar('usuarios', [
             'nombre'        => $nombre,
             'email'         => $email,
@@ -72,7 +74,8 @@ layout_inicio('Instalación');
         <?= csrf_campo() ?>
         <?= campo('nombre', 'Su nombre', $nombre, 'text', 'required') ?>
         <?= campo('email', 'Correo (será su usuario)', $email, 'email', 'required') ?>
-        <?= campo('clave', 'Contraseña (mín. 8 caracteres)', '', 'password', 'required minlength="8" autocomplete="new-password"') ?>
+        <?= campo('clave', 'Contraseña', '', 'password', 'required minlength="' . CLAVE_MIN . '" autocomplete="new-password"') ?>
+        <small class="tenue"><?= e(texto_politica_clave()) ?></small>
         <button type="submit">Instalar</button>
     </form>
 </div>

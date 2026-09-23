@@ -5,7 +5,7 @@ Options -Indexes
 DirectoryIndex index.php
 
 # Bloquear archivos sensibles
-<FilesMatch "^(config\.php|config\.sample\.php|.*\.sql|.*\.sqlite|.*\.md|\.git.*)$">
+<FilesMatch "^(config\.php|config\.local\.php|config\.sample\.php|.*\.sql|.*\.sqlite|.*\.key|.*\.md|\.git.*)$">
     Require all denied
 </FilesMatch>
 

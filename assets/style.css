@@ -98,7 +98,7 @@ button:hover, .boton:hover { background: var(--primario-hover); text-decoration:
 .secundario:hover { background: #f1f5f9; }
 .peligro { background: #fff; color: var(--peligro); border-color: #fca5a5; }
 .peligro:hover { background: var(--error-fondo); }
-.chico { padding: .2rem .55rem; font-size: .85rem; }
+.chico { padding: .2rem .55rem; font-size: .85rem; white-space: nowrap; }
 form.en-linea { display: inline; }
 
 .formulario label { display: block; font-weight: 600; margin: .8rem 0 .3rem; font-size: .9rem; }
@@ -184,3 +184,87 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #93c5fd; border-c
 @media print {
     .barra, .barra-lista, button, .boton { display: none !important; }
 }
+
+/* ---------- Gestión tributaria ---------- */
+.barra nav { flex-wrap: wrap; row-gap: .15rem; padding: .35rem 0; }
+.barra nav a { padding: .4rem .6rem; font-size: .92rem; }
+
+.encabezado .titulo p { margin: .2rem 0 0; }
+a.tarjeta { color: var(--tenue); }
+a.tarjeta:hover { text-decoration: none; border-color: var(--primario); }
+.texto-peligro { color: var(--peligro) !important; }
+.texto-aviso { color: var(--aviso-texto); }
+.centrado { text-align: center; }
+.separado { margin-top: 1.1rem; }
+.chico-texto { font-size: .82rem; }
+.lista-simple { list-style: none; margin: 0; padding: 0; }
+.lista-simple li { padding: .3rem 0; border-bottom: 1px solid var(--borde); }
+.lista-simple small { margin-left: .3rem; }
+
+tr.pronto td:first-child { color: var(--aviso-texto); font-weight: 600; }
+dd.vencida { color: var(--peligro); font-weight: 600; }
+dd.pronto { color: var(--aviso-texto); font-weight: 600; }
+tfoot th { border-top: 2px solid var(--borde); color: var(--texto); }
+
+.tarea-pendiente  { background: #e0e7ff; color: #3730a3; }
+.tarea-en_proceso { background: #fef9c3; color: #854d0e; }
+.tarea-esperando  { background: #ffedd5; color: #9a3412; }
+.tarea-completada { background: #dcfce7; color: #166534; }
+.tarea-vencida    { background: #fee2e2; color: #991b1b; }
+.prioridad-alta   { background: #fee2e2; color: #991b1b; }
+.factura-borrador { background: #e5e7eb; color: #374151; }
+.factura-emitida  { background: #dbeafe; color: #1e40af; }
+.factura-pagada   { background: #dcfce7; color: #166534; }
+.factura-anulada  { background: #fee2e2; color: #991b1b; }
+
+.grupo-input { display: flex; gap: .4rem; }
+.grupo-input input { flex: 1; min-width: 0; }
+.grupo-input button { white-space: nowrap; }
+.clave-visible { font-family: ui-monospace, Consolas, monospace; background: var(--aviso-fondo); }
+
+details.subform { margin-top: 1rem; }
+details.subform > summary { cursor: pointer; color: var(--primario); font-weight: 600; }
+details.panel.subform { margin-top: 0; }
+.sin-marco { border: 0; padding: 0; background: none; }
+.fila-formulario { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; }
+.fila-formulario > div { min-width: 160px; }
+.fila-formulario button { margin-bottom: 1px; }
+
+.resumen-montos { max-width: 360px; margin: .75rem 0 0 auto; }
+.resumen-montos th { text-transform: none; font-size: .9rem; letter-spacing: 0; }
+.resumen-montos tr.total th, .resumen-montos tr.total td { font-weight: 700; font-size: 1.05rem; color: var(--texto); }
+[hidden] { display: none !important; }
+
+.qr-2fa { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin: .5rem 0 1rem; }
+.qr-2fa #qr { background: #fff; padding: 8px; border: 1px solid var(--borde); border-radius: 6px; min-width: 196px; min-height: 196px; }
+.clave-2fa { font-size: 1.05rem; letter-spacing: .05em; }
+.instrucciones { margin: 1rem 0; }
+.instrucciones ol { margin: 0; padding-left: 1.2rem; }
+.lista-requisitos li { margin: .4rem 0; }
+.lista-requisitos li::marker { content: '⬜  '; }
+.lista-requisitos li.cumplido::marker { content: '✅  '; }
+.revelar-clave { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.revelar-clave input { max-width: 220px; }
+.tabla-importar select, .tabla-importar input { min-width: 160px; }
+.tabla-importar .muestra span { display: block; font-family: ui-monospace, Consolas, monospace; font-size: .85rem; color: var(--tenue); }
+
+/* ---------- Buscador general ---------- */
+.buscador input { width: 230px; padding: .35rem .6rem; background: #1e293b; border-color: #334155; color: #fff; }
+.buscador input::placeholder { color: #94a3b8; }
+.buscador input:focus { background: #fff; color: var(--texto); width: 300px; }
+.buscador-grande input[type=search] { max-width: 520px; font-size: 1.05rem; padding: .6rem .8rem; }
+.revelar-en-linea { white-space: nowrap; }
+.revelar-en-linea .clave-visible { width: 190px; padding: .25rem .5rem; }
+.revelar-en-linea .error { color: var(--peligro); font-size: .85rem; display: block; }
+@media (max-width: 860px) {
+    .buscador { display: none; width: 100%; }
+    .menu-abierto .buscador { display: block; }
+    .buscador input, .buscador input:focus { width: 100%; }
+}
+
+.etiqueta-libre { display: flex; flex-direction: column; gap: .35rem; }
+.casilla { width: 1.5rem; }
+.acciones-masivas { margin-top: 1rem; }
+.acciones-masivas .fila-formulario > div { min-width: 200px; }
+.fila-acciones { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.fila-acciones > div:last-child { display: flex; gap: .5rem; }

@@ -78,7 +78,10 @@ function usuario_actual(): ?array
         return $usuario;
     }
     $id = $_SESSION['usuario_id'] ?? null;
-    $usuario = $id ? q_uno('SELECT id, nombre, email, rol FROM usuarios WHERE id = ? AND activo = 1', [$id]) : null;
+    $usuario = $id ? q_uno(
+        'SELECT id, nombre, email, rol, ver_credenciales, ical_token,
+            CASE WHEN totp_secreto IS NULL THEN 0 ELSE 1 END AS totp_activo
+         FROM usuarios WHERE id = ? AND activo = 1', [$id]) : null;
     return $usuario;
 }
 
@@ -118,19 +121,63 @@ function login_bloqueado(): bool
     return $n >= MAX_INTENTOS;
 }
 
-function intentar_login(string $email, string $clave): bool
+/**
+ * Primer paso del inicio de sesión (correo y contraseña).
+ * @return string 'ok' | '2fa' (falta el código de verificación) | 'error'
+ */
+function intentar_login(string $email, string $clave): string
 {
-    $u = q_uno('SELECT id, password_hash FROM usuarios WHERE email = ? AND activo = 1', [mb_strtolower($email)]);
+    $u = q_uno('SELECT id, password_hash, totp_secreto FROM usuarios WHERE email = ? AND activo = 1', [mb_strtolower($email)]);
     if (!$u || !password_verify($clave, $u['password_hash'])) {
-        q('INSERT INTO login_intentos (ip, creado_en) VALUES (?, ?)', [ip_cliente(), ahora()]);
-        return false;
+        registrar_intento_fallido();
+        return 'error';
     }
     if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
         q('UPDATE usuarios SET password_hash = ? WHERE id = ?', [password_hash($clave, PASSWORD_DEFAULT), $u['id']]);
     }
+    session_regenerate_id(true);
+    $_SESSION['clave_debil'] = clave_debil($clave, $email) !== null;
+    if ($u['totp_secreto']) {
+        $_SESSION['2fa_usuario'] = (int)$u['id'];
+        $_SESSION['2fa_desde'] = time();
+        return '2fa';
+    }
+    completar_login((int)$u['id']);
+    return 'ok';
+}
+
+/** Segundo paso: código de la app autenticadora. */
+function verificar_login_2fa(string $codigo): bool
+{
+    $id = $_SESSION['2fa_usuario'] ?? null;
+    if (!$id || time() - ($_SESSION['2fa_desde'] ?? 0) > 300) {
+        unset($_SESSION['2fa_usuario'], $_SESSION['2fa_desde']);
+        return false;
+    }
+    $secreto = q_valor('SELECT totp_secreto FROM usuarios WHERE id = ? AND activo = 1', [$id]);
+    if (!$secreto || !totp_verificar((string)$secreto, $codigo)) {
+        registrar_intento_fallido();
+        return false;
+    }
+    unset($_SESSION['2fa_usuario'], $_SESSION['2fa_desde']);
+    completar_login((int)$id);
+    return true;
+}
+
+function login_2fa_pendiente(): bool
+{
+    return !empty($_SESSION['2fa_usuario']) && time() - ($_SESSION['2fa_desde'] ?? 0) <= 300;
+}
+
+function registrar_intento_fallido(): void
+{
+    q('INSERT INTO login_intentos (ip, creado_en) VALUES (?, ?)', [ip_cliente(), ahora()]);
+}
+
+function completar_login(int $id): void
+{
     q('DELETE FROM login_intentos WHERE ip = ?', [ip_cliente()]);
     session_regenerate_id(true);
-    $_SESSION['usuario_id'] = (int)$u['id'];
-    q('UPDATE usuarios SET ultimo_login = ? WHERE id = ?', [ahora(), $u['id']]);
-    return true;
+    $_SESSION['usuario_id'] = $id;
+    q('UPDATE usuarios SET ultimo_login = ? WHERE id = ?', [ahora(), $id]);
 }

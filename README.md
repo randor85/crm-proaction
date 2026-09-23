@@ -8,18 +8,27 @@ hosting corporativo (cPanel, Plesk, DirectAdmin, etc.).
 
 ## Funcionalidades
 
+Pensado para un estudio de **gestión tributaria externalizada**.
+
 | Módulo | Qué incluye |
 |---|---|
-| **Inicio** | Totales, embudo de ventas por etapa, monto en curso, ganado del mes, mis actividades vencidas y próximas |
-| **Empresas** | Alta/edición, ficha con contactos, oportunidades e historial de actividades, búsqueda, exportación CSV |
-| **Contactos** | Vinculados a empresa, ficha con oportunidades y actividades, búsqueda, exportación CSV |
-| **Oportunidades** | Tablero por etapa (Prospecto → Calificado → Propuesta → Negociación → Ganada/Perdida), cambio rápido de etapa, monto, probabilidad y fecha de cierre |
-| **Actividades** | Llamadas, reuniones, correos, tareas y notas; asignación a usuarios; pendientes, vencidas y completadas |
-| **Usuarios** | Roles Administrador/Usuario, activación y desactivación (solo administradores) |
+| **Inicio** | UF del día y UTM del mes, mis tareas vencidas y de los próximos 7 días, agenda, cobranza pendiente |
+| **Clientes** | Grupo, empresa o persona; ejecutivo a cargo; honorario mensual en UF o pesos; ficha con todos sus RUT, tareas, facturación, documentos, credenciales y gestiones |
+| **Empresas / RUT** | Cada RUT de un cliente: régimen tributario, inicio de actividades, giro; **socios** con % de participación (personas o empresas) y búsqueda de todas las participaciones de un RUT |
+| **Tareas** | Pendientes por cliente/RUT con responsable, vencimiento, estado (pendiente, en proceso, esperando al cliente), prioridad y **recurrencia** (al completar un F29 mensual se crea el del mes siguiente); seguimiento de gestiones dentro de cada tarea |
+| **Gestiones** | Bitácora de llamadas, reuniones, correos y trámites por cliente y tarea |
+| **Calendario** | Enlace iCal privado por usuario para suscribirse desde **Google Calendar u Outlook** (tareas y gestiones agendadas) |
+| **Facturación** | Registro de facturas afectas/exentas y boletas de honorarios; monto en UF con la **UF del día** automática (mindicador.cl); IVA o retención calculados; estados borrador/emitida/pagada/anulada; generación de borradores mensuales según el honorario de cada cliente; cobranza |
+| **Documentos** | Repositorio por cliente/RUT con categorías y período; archivos guardados fuera de la carpeta pública y descargables solo con sesión |
+| **Credenciales** | Claves de SII, Previred, municipalidades, bancos, etc., **cifradas con AES-256-GCM**; solo usuarios con permiso y verificación en dos pasos; registro de quién vio cada clave |
+| **Contactos / Oportunidades** | Contactos por empresa y embudo de ventas para prospectos |
+| **Usuarios / Sistema** | Roles, permiso de credenciales, reinicio de 2FA; estado del servidor, llave de cifrado, UF manual (solo administradores) |
 
 ### Seguridad incluida
 
 - Contraseñas con `password_hash` (bcrypt/argon según el servidor).
+- Verificación en dos pasos (TOTP: Google Authenticator, Microsoft Authenticator), obligatoria para ver credenciales.
+- Credenciales de clientes cifradas con una llave guardada **fuera** de `public_html`, con registro de accesos.
 - Consultas preparadas con PDO (sin inyección SQL) y escape de toda salida HTML (sin XSS).
 - Token CSRF en todos los formularios.
 - Bloqueo tras 5 intentos fallidos de inicio de sesión durante 15 minutos.
@@ -54,6 +63,18 @@ hosting corporativo (cPanel, Plesk, DirectAdmin, etc.).
 
 > Alternativa al paso 4: puede importar `sql/mysql.sql` desde phpMyAdmin, pero entonces tendrá que
 > crear el primer usuario a mano. El instalador es más sencillo.
+
+### Carpeta privada (credenciales y documentos)
+
+En `config.php` apunte `llave_archivo` y `documentos_ruta` a una carpeta **fuera** de `public_html`,
+por ejemplo `/home/USUARIO/crm_privado/llave.key` y `/home/USUARIO/crm_privado/documentos`.
+Luego, como administrador, entre en **Sistema → Crear llave de cifrado** y descargue una copia de
+la llave: si se pierde, las claves guardadas no se pueden recuperar.
+
+### Actualizaciones
+
+Al subir una versión nueva, los cambios de base de datos se aplican solos la primera vez que se
+carga una página (tabla `migraciones`). Respalde la base antes de actualizar.
 
 ### ¿"Intranet" en un hosting público?
 
@@ -95,6 +116,7 @@ index.php          Enrutador principal (index.php?r=modulo&a=accion)
 login.php          Inicio de sesión
 logout.php         Cierre de sesión
 install.php        Instalador (eliminar después de usar)
+ical.php           Calendario iCal por usuario (Google / Outlook)
 config.sample.php  Plantilla de configuración
 app/
   bootstrap.php    Carga de configuración, sesión y restricción por IP
@@ -102,7 +124,10 @@ app/
   db.php           Conexión PDO y funciones de consulta
   auth.php         Inicio de sesión, permisos, bloqueo por intentos, filtro de IP
   layout.php       Plantilla HTML, menú, paginación
-  modules/         Un archivo por sección (empresas, contactos, oportunidades…)
+  migraciones.php  Cambios de esquema que se aplican solos
+  seguridad.php    Cifrado de credenciales y verificación en dos pasos
+  indicadores.php  UF, UTM y dólar (mindicador.cl) con caché
+  modules/         Un archivo por sección (clientes, tareas, facturas…)
 sql/               Esquemas MySQL y SQLite
 assets/style.css   Estilos (adaptados a celulares)
 data/              Base SQLite (solo en modo prueba)
