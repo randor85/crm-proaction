@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------
+# CRM ProAction - configuración Apache
+# ---------------------------------------------------------------
+Options -Indexes
+DirectoryIndex index.php
+
+# Bloquear archivos sensibles
+<FilesMatch "^(config\.php|config\.sample\.php|.*\.sql|.*\.sqlite|.*\.md|\.git.*)$">
+    Require all denied
+</FilesMatch>
+
+# Forzar HTTPS (descomente si su hosting tiene certificado SSL)
+# RewriteEngine On
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Restricción de intranet a nivel servidor (opcional, complementa
+# 'ips_permitidas' en config.php). Descomente y ajuste los rangos:
+# <RequireAny>
+#     Require ip 192.168.1.0/24
+#     Require ip 200.1.2.3
+# </RequireAny>
+
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+</IfModule>
