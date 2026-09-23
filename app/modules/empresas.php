@@ -30,8 +30,22 @@ if ($accion === 'guardar' && es_post()) {
         'ciudad'             => nulo_si_vacio(entrada('ciudad')),
         'notas'              => nulo_si_vacio(entrada('notas')),
         'responsable_id'     => entrada_int('responsable_id'),
+        'representamos'      => entrada('representamos') === '1' ? 1 : 0,
+        'representante_nombre' => nulo_si_vacio(entrada('representante_nombre')),
+        'mandato_facturacion' => entrada('mandato_facturacion') === '1' ? 1 : 0,
+        'mandato_desde'      => entrada_fecha('mandato_desde'),
+        'mandato_hasta'      => entrada_fecha('mandato_hasta'),
+        'mandato_notas'      => nulo_si_vacio(entrada('mandato_notas')),
         'actualizado_en'     => ahora(),
     ];
+    [$datos['representante_rut'], $errorRutRep] = rut_entrada('representante_rut');
+    $errorRut = $errorRut ?: ($errorRutRep ? 'Representante: ' . $errorRutRep : null);
+    if ($datos['representamos'] && !$datos['representante_nombre']) {
+        $datos['representante_nombre'] = nombre_estudio();
+    }
+    if ($datos['mandato_desde'] && $datos['mandato_hasta'] && $datos['mandato_hasta'] < $datos['mandato_desde']) {
+        $errorRut = $errorRut ?: 'La fecha de término del mandato es anterior a la de inicio.';
+    }
     if ($datos['nombre'] === '' || $errorRut) {
         flash('error', $errorRut ?: 'La razón social es obligatoria.');
         redirigir(url('empresas', ['a' => 'form', 'id' => $id, 'cliente_id' => $datos['cliente_id']]));
@@ -154,18 +168,26 @@ if ($filtroCliente) {
     $condiciones[] = 'e.cliente_id = :cliente';
     $params['cliente'] = $filtroCliente;
 }
+$filtroMandato = entrada('mandato');
+if ($filtroMandato === 'si') {
+    $condiciones[] = 'e.mandato_facturacion = 1';
+} elseif ($filtroMandato === 'representamos') {
+    $condiciones[] = 'e.representamos = 1';
+}
 $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
 
 if ($accion === 'csv') {
     $filas = q_todos(
         "SELECT e.nombre, e.identificacion, c.nombre AS cliente, e.regimen, e.inicio_actividades, e.sector, e.telefono, e.email,
-            e.direccion, e.ciudad, u.nombre AS responsable
+            e.direccion, e.ciudad, u.nombre AS responsable, e.representante_nombre, e.representante_rut,
+            CASE WHEN e.mandato_facturacion = 1 THEN 'Sí' ELSE '' END AS mandato, e.mandato_desde, e.mandato_hasta
          FROM empresas e LEFT JOIN clientes c ON c.id = e.cliente_id LEFT JOIN usuarios u ON u.id = e.responsable_id
          $where ORDER BY e.nombre",
         $params
     );
     exportar_csv('empresas_' . date('Ymd') . '.csv',
-        ['Razón social', 'RUT', 'Cliente', 'Régimen', 'Inicio de actividades', 'Giro', 'Teléfono', 'Correo', 'Dirección', 'Comuna', 'Responsable'],
+        ['Razón social', 'RUT', 'Cliente', 'Régimen', 'Inicio de actividades', 'Giro', 'Teléfono', 'Correo', 'Dirección', 'Comuna', 'Responsable',
+            'Representante legal', 'RUT representante', 'Mandato de facturación', 'Mandato desde', 'Mandato hasta'],
         array_map('array_values', $filas));
 }
 
@@ -197,6 +219,23 @@ if ($accion === 'form') {
         <div><?= campo('direccion', 'Dirección', $e['direccion'] ?? '') ?></div>
         <div><?= campo('ciudad', 'Comuna', $e['ciudad'] ?? '') ?></div>
         <div class="completo"><?= area('notas', 'Notas', $e['notas'] ?? '') ?></div>
+
+        <div class="completo"><h3 class="separado">Representación y mandato</h3></div>
+        <div class="completo">
+            <label class="check"><input type="checkbox" name="representamos" value="1" id="f_representamos" <?= !empty($e['representamos']) ? 'checked' : '' ?>>
+                Lo representamos nosotros (<?= e(nombre_estudio()) ?>)</label>
+        </div>
+        <div><?= campo('representante_nombre', 'Representante legal', $e['representante_nombre'] ?? '', 'text', 'maxlength="150" placeholder="Nombre de quien representa a la empresa"') ?></div>
+        <div><?= campo('representante_rut', 'RUT del representante (con él se ingresa al SII para facturar)', $e['representante_rut'] ?? '', 'text', 'placeholder="12.345.678-9" list="ruts-representantes"') ?>
+            <datalist id="ruts-representantes"><?php foreach ($id ? q_todos('SELECT nombre, rut FROM socios WHERE empresa_id = ? AND rut IS NOT NULL ORDER BY representante DESC', [$id]) : [] as $s): ?><option value="<?= e($s['rut']) ?>"><?= e($s['nombre']) ?></option><?php endforeach; ?></datalist></div>
+        <div class="completo">
+            <label class="check"><input type="checkbox" name="mandato_facturacion" value="1" <?= !empty($e['mandato_facturacion']) ? 'checked' : '' ?>>
+                Tenemos mandato para emitir facturas a nombre de esta empresa</label>
+        </div>
+        <div><?= campo('mandato_desde', 'Mandato vigente desde', $e['mandato_desde'] ?? '', 'date') ?></div>
+        <div><?= campo('mandato_hasta', 'Hasta (vacío = indefinido)', $e['mandato_hasta'] ?? '', 'date') ?></div>
+        <div class="completo"><?= area('mandato_notas', 'Alcance del mandato / notas (p. ej. documentos autorizados en el SII)', $e['mandato_notas'] ?? '') ?></div>
+
         <div class="completo acciones">
             <button type="submit">Guardar</button>
             <a class="boton secundario" href="<?= e($id ? url('empresas', ['a' => 'ver', 'id' => $id]) : url('empresas')) ?>">Cancelar</a>
@@ -218,6 +257,8 @@ if ($accion === 'ver' && $id) {
     }
     $socios = q_todos('SELECT * FROM socios WHERE empresa_id = ? ORDER BY porcentaje DESC, nombre', [$id]);
     $sumaPct = array_sum(array_map(static fn($s) => (float)$s['porcentaje'], $socios));
+    $repSocios = array_values(array_filter($socios, static fn($s) => (int)$s['representante'] === 1));
+    $credRep = puede_ver_credenciales() ? credenciales_de_rut($e['representante_rut']) : [];
     // Otras participaciones de cada socio (por RUT)
     $otras = [];
     foreach ($socios as $s) {
@@ -246,7 +287,7 @@ if ($accion === 'ver' && $id) {
     ?>
     <div class="encabezado">
         <div class="titulo">
-            <h1><?= e($e['nombre']) ?></h1>
+            <h1><?= e($e['nombre']) ?> <?= badge_mandato($e) ?></h1>
             <?php if ($e['cliente']): ?><p class="tenue">Cliente: <?= enlace('clientes', $e['cliente_id'], $e['cliente']) ?></p><?php endif; ?>
         </div>
         <div>
@@ -268,6 +309,51 @@ if ($accion === 'ver' && $id) {
                 <dt>Dirección</dt><dd><?= e(trim(($e['direccion'] ?? '') . ', ' . ($e['ciudad'] ?? ''), ', ')) ?></dd>
                 <dt>Responsable</dt><dd><?= e($e['responsable']) ?></dd>
             </dl>
+            <h3 class="separado">Representación y mandato</h3>
+            <dl class="ficha">
+                <dt>Representante legal</dt>
+                <dd><?php if ($e['representamos']): ?><strong><?= e($e['representante_nombre'] ?: nombre_estudio()) ?></strong> <span class="badge mandato-vigente">Nosotros</span>
+                    <?php elseif ($e['representante_nombre']): ?><?= e($e['representante_nombre']) ?>
+                    <?php elseif ($repSocios): ?><?= e(implode(', ', array_column($repSocios, 'nombre'))) ?> <small class="tenue">(según socios)</small>
+                    <?php else: ?><span class="tenue">Sin registrar</span><?php endif; ?>
+                    <?php if ($e['representante_rut']): ?><small class="tenue"> · <?= e($e['representante_rut']) ?></small><?php endif; ?></dd>
+                <dt>Mandato de facturación</dt>
+                <dd><?php if ($e['mandato_facturacion']): ?><?= badge_mandato($e) ?>
+                    <?php if ($e['mandato_desde']): ?><br><small class="tenue">Desde <?= e(fecha($e['mandato_desde'])) ?><?= $e['mandato_hasta'] ? ' hasta ' . e(fecha($e['mandato_hasta'])) : ', sin fecha de término' ?></small><?php endif; ?>
+                    <?php else: ?><span class="tenue">No</span><?php endif; ?></dd>
+            </dl>
+            <?php if ($e['mandato_notas']): ?><p class="notas"><?= nl2br(e($e['mandato_notas'])) ?></p><?php endif; ?>
+            <?php if ($e['mandato_facturacion'] || $e['representante_rut']): ?>
+                <div class="ingreso-sii">
+                    <h3>Ingreso al SII para facturar</h3>
+                    <?php if (!$e['representante_rut']): ?>
+                        <p class="vacio">Para facturar se ingresa con el RUT del representante: regístrelo en <a href="<?= e(url('empresas', ['a' => 'form', 'id' => $id])) ?>">Editar</a>.</p>
+                    <?php else: ?>
+                        <p>Ingresar con el RUT del representante: <strong id="rut-rep"><?= e($e['representante_rut']) ?></strong>
+                            <button type="button" class="chico secundario" data-copiar="rut-rep">Copiar</button></p>
+                        <?php if (!puede_ver_credenciales()): ?>
+                            <p class="vacio">Necesita permiso de credenciales para ver la clave.</p>
+                        <?php elseif (!$credRep): ?>
+                            <p class="vacio">No hay una credencial guardada para ese RUT.
+                                <a href="<?= e(url('credenciales', ['a' => 'form', 'empresa_id' => $id, 'institucion' => 'SII', 'usuario' => $e['representante_rut'],
+                                    'notas' => 'Clave del representante legal para facturar a nombre de ' . $e['nombre'] . '.'])) ?>">+ Agregar credencial SII del representante</a></p>
+                        <?php else: ?>
+                            <table><tbody>
+                            <?php foreach ($credRep as $k): ?>
+                                <tr>
+                                    <td><a href="<?= e(url('credenciales', ['a' => 'ver', 'id' => $k['id']])) ?>"><strong><?= e($k['institucion']) ?></strong></a>
+                                        <?php if ($k['cliente']): ?><br><small class="tenue"><?= e($k['cliente']) ?></small><?php endif; ?></td>
+                                    <td class="nowrap"><?= e($k['usuario']) ?></td>
+                                    <td class="revelar-en-linea" data-credencial="<?= (int)$k['id'] ?>">
+                                        <?php if ($k['tiene_clave']): ?><button type="button" class="chico" data-revelar>Mostrar clave</button><?php else: ?><span class="tenue">Sin clave</span><?php endif; ?></td>
+                                    <td class="derecha"><?php if ($k['url']): ?><a href="<?= e($k['url']) ?>" target="_blank" rel="noopener noreferrer">Abrir sitio ↗</a><?php endif; ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody></table>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
             <?php if ($e['notas']): ?><p class="notas"><?= nl2br(e($e['notas'])) ?></p><?php endif; ?>
             <?php if ($participa): ?>
                 <h3 class="separado">Es socia de</h3>
@@ -394,6 +480,7 @@ layout_inicio('Empresas', 'empresas');
 <h1>Empresas / RUT</h1>
 <?php barra_lista('empresas', '+ Nueva empresa', true, [
     selector('cliente_id', '', opciones_clientes(false), $filtroCliente ?? '', 'Todos los clientes', 'aria-label="Cliente"'),
+    selector('mandato', '', ['si' => 'Con mandato de facturación', 'representamos' => 'Las que representamos'], $filtroMandato, 'Todas', 'aria-label="Mandato"'),
 ]); ?>
 <form class="barra-lista" method="get">
     <input type="hidden" name="r" value="empresas"><input type="hidden" name="a" value="participaciones">
@@ -405,7 +492,8 @@ layout_inicio('Empresas', 'empresas');
     <tbody>
     <?php foreach ($empresas as $e): ?>
         <tr>
-            <td><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $e['id']])) ?>"><?= e($e['nombre']) ?></a></td>
+            <td><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $e['id']])) ?>"><?= e($e['nombre']) ?></a>
+                <?php if ($e['mandato_facturacion'] || $e['representamos']): ?><br><?= badge_mandato($e) ?><?= $e['representamos'] && !$e['mandato_facturacion'] ? '<span class="badge mandato-vigente">Representamos</span>' : '' ?><?php endif; ?></td>
             <td class="nowrap"><?= e($e['identificacion']) ?></td>
             <td><?= enlace('clientes', $e['cliente_id'], $e['cliente']) ?></td>
             <td><?= e($e['regimen']) ?></td>

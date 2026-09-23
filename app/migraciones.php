@@ -221,6 +221,17 @@ const MIGRACIONES = [
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          FROM clientes WHERE honorario_monto > 0",
     ],
+
+    // Representante legal de cada empresa y mandato del estudio para facturar a su nombre
+    '2026_09_24_representacion_mandato' => [
+        'ALTER TABLE empresas ADD COLUMN representante_nombre VARCHAR(150) NULL',
+        'ALTER TABLE empresas ADD COLUMN representante_rut VARCHAR(20) NULL',
+        'ALTER TABLE empresas ADD COLUMN representamos {BOOL} NOT NULL DEFAULT 0',
+        'ALTER TABLE empresas ADD COLUMN mandato_facturacion {BOOL} NOT NULL DEFAULT 0',
+        'ALTER TABLE empresas ADD COLUMN mandato_desde DATE NULL',
+        'ALTER TABLE empresas ADD COLUMN mandato_hasta DATE NULL',
+        'ALTER TABLE empresas ADD COLUMN mandato_notas TEXT NULL',
+    ],
 ];
 
 function migracion_sql(string $sql): string

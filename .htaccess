@@ -21,6 +21,17 @@ DirectoryIndex index.php
 #     Require ip 200.1.2.3
 # </RequireAny>
 
+# Tamaño máximo de los documentos subidos (solo aplica si PHP corre como módulo de Apache;
+# con PHP-FPM se usa el archivo .user.ini de esta carpeta)
+<IfModule php_module>
+    php_value upload_max_filesize 20M
+    php_value post_max_size 25M
+</IfModule>
+<IfModule lsapi_module>
+    php_value upload_max_filesize 20M
+    php_value post_max_size 25M
+</IfModule>
+
 <IfModule mod_headers.c>
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-Content-Type-Options "nosniff"

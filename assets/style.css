@@ -268,3 +268,10 @@ details.panel.subform { margin-top: 0; }
 .acciones-masivas .fila-formulario > div { min-width: 200px; }
 .fila-acciones { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .fila-acciones > div:last-child { display: flex; gap: .5rem; }
+
+.mandato-vigente    { background: #dcfce7; color: #166534; }
+.mandato-por_vencer { background: #fef3c7; color: #92400e; }
+.mandato-vencido    { background: #fee2e2; color: #991b1b; }
+
+.ingreso-sii { margin-top: 1rem; padding: .75rem 1rem; border: 1px solid var(--borde); border-left: 3px solid var(--primario); border-radius: 6px; background: #f8fafc; }
+.ingreso-sii h3 { margin-top: 0; }

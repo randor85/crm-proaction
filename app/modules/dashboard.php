@@ -30,6 +30,11 @@ $cobranza = q_todos(
      WHERE f.estado = 'emitida' ORDER BY f.fecha_vencimiento IS NULL, f.fecha_vencimiento, f.fecha_emision LIMIT 8");
 $borradores = (int)q_valor("SELECT COUNT(*) FROM facturas WHERE estado = 'borrador'");
 
+$mandatos = q_todos(
+    "SELECT id, nombre, identificacion, mandato_facturacion, mandato_hasta FROM empresas
+     WHERE mandato_facturacion = 1 AND mandato_hasta IS NOT NULL AND mandato_hasta <= ? ORDER BY mandato_hasta",
+    [date('Y-m-d', strtotime('+30 days'))]);
+
 $pipeline = q_todos("SELECT etapa, COUNT(*) AS n, COALESCE(SUM(monto), 0) AS total FROM oportunidades GROUP BY etapa");
 $porEtapa = array_column($pipeline, null, 'etapa');
 
@@ -109,6 +114,18 @@ layout_inicio('Inicio', 'dashboard');
         <?php endif; ?>
     </section>
 </div>
+
+<?php if ($mandatos): ?>
+<section class="panel">
+    <h2>Mandatos de facturación por renovar</h2>
+    <table><tbody>
+    <?php foreach ($mandatos as $m): ?>
+        <tr><td><?= enlace('empresas', $m['id'], $m['nombre']) ?> <small class="tenue"><?= e($m['identificacion']) ?></small></td>
+            <td class="derecha"><?= badge_mandato($m) ?></td></tr>
+    <?php endforeach; ?>
+    </tbody></table>
+</section>
+<?php endif; ?>
 
 <?php if ($pipeline): ?>
 <section class="panel">

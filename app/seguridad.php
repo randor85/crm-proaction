@@ -243,3 +243,24 @@ function registrar_credencial(?int $credencialId, string $accion, string $detall
         'creado_en'     => ahora(),
     ]);
 }
+
+/**
+ * Credenciales asociadas a un RUT: las que usan ese RUT como usuario (típico en el SII)
+ * y las del cliente o la empresa que tienen ese RUT. Las del SII aparecen primero.
+ */
+function credenciales_de_rut(?string $rut): array
+{
+    $limpio = strtoupper(preg_replace('/[^0-9kK]/', '', (string)$rut));
+    if (strlen($limpio) < 2) {
+        return [];
+    }
+    return q_todos(
+        "SELECT k.id, k.institucion, k.usuario, k.url, k.clave_cifrada IS NOT NULL AS tiene_clave, c.nombre AS cliente
+         FROM credenciales k LEFT JOIN clientes c ON c.id = k.cliente_id LEFT JOIN empresas e ON e.id = k.empresa_id
+         WHERE UPPER(REPLACE(REPLACE(k.usuario, '.', ''), '-', '')) = ?
+            OR UPPER(REPLACE(REPLACE(c.rut, '.', ''), '-', '')) = ?
+            OR (k.empresa_id IS NOT NULL AND UPPER(REPLACE(REPLACE(e.identificacion, '.', ''), '-', '')) = ?
+                AND UPPER(REPLACE(REPLACE(COALESCE(k.usuario, ''), '.', ''), '-', '')) IN ('', ?))
+         ORDER BY CASE WHEN UPPER(k.institucion) LIKE '%SII%' THEN 0 ELSE 1 END, k.institucion",
+        [$limpio, $limpio, $limpio, $limpio]);
+}

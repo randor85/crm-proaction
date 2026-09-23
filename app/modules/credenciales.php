@@ -89,7 +89,7 @@ if ($accion === 'revelar_json' && es_post() && $id) {
     }
     try {
         $texto = descifrar($k['clave_cifrada']);
-        registrar_credencial($id, 'ver', 'Desde el buscador');
+        registrar_credencial($id, 'ver', 'Vista rápida (buscador o ficha)');
         exit(json_encode(['clave' => $texto], JSON_UNESCAPED_UNICODE));
     } catch (RuntimeException $ex) {
         exit(json_encode(['error' => $ex->getMessage()]));
@@ -108,7 +108,9 @@ if ($accion === 'eliminar' && es_post() && $id) {
 /* ---------- Formulario ---------- */
 if ($accion === 'form') {
     $k = $id ? q_uno('SELECT * FROM credenciales WHERE id = ?', [$id])
-        : ['cliente_id' => entrada_int('cliente_id'), 'empresa_id' => entrada_int('empresa_id')];
+        : ['cliente_id' => entrada_int('cliente_id'), 'empresa_id' => entrada_int('empresa_id'),
+            'institucion' => entrada('institucion'), 'usuario' => entrada('usuario'), 'notas' => entrada('notas'),
+            'url' => entrada('institucion') === 'SII' ? 'https://www.sii.cl' : ''];
     if ($id && !$k) {
         redirigir(url('credenciales'));
     }

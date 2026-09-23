@@ -68,6 +68,12 @@ function layout_fin(): void
 {
     ?>
 </main>
+<template id="plantilla-pedir-clave">
+    <form class="revelar-clave">
+        <input type="password" required autocomplete="current-password" placeholder="Su contraseña del CRM" aria-label="Su contraseña del CRM">
+        <button type="submit" class="chico">Ver</button>
+    </form>
+</template>
 <script src="assets/app.js"></script>
 </body>
 </html>
@@ -329,4 +335,35 @@ function selector_etiqueta(string $nombre, string $etiqueta, array $valores, ?st
     }
     return $html . '<option value="__otra__">Otra… (escribir nueva)</option></select>'
         . '<input type="text" name="' . e($nombre) . '_nueva" maxlength="80" placeholder="Escriba la nueva" hidden aria-label="Nueva ' . e(mb_strtolower($etiqueta ?: $nombre)) . '"></div>';
+}
+
+/** Nombre del estudio (para "lo representamos nosotros"). */
+function nombre_estudio(): string
+{
+    return (string)config('nombre_estudio', 'ProAction Consultores');
+}
+
+/**
+ * Estado del mandato de facturación de una empresa.
+ * @return array{0:string,1:string} [clave: vigente|por_vencer|vencido|sin, texto]
+ */
+function estado_mandato(array $e): array
+{
+    if (empty($e['mandato_facturacion'])) {
+        return ['sin', ''];
+    }
+    $hasta = $e['mandato_hasta'] ?? null;
+    if ($hasta && $hasta < date('Y-m-d')) {
+        return ['vencido', 'Mandato vencido el ' . fecha($hasta)];
+    }
+    if ($hasta && $hasta <= date('Y-m-d', strtotime('+30 days'))) {
+        return ['por_vencer', 'Mandato vence el ' . fecha($hasta)];
+    }
+    return ['vigente', 'Facturamos por mandato' . ($hasta ? ' hasta ' . fecha($hasta) : '')];
+}
+
+function badge_mandato(array $e): string
+{
+    [$clave, $texto] = estado_mandato($e);
+    return $clave === 'sin' ? '' : '<span class="badge mandato-' . $clave . '">' . e($texto) . '</span>';
 }

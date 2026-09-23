@@ -212,11 +212,5 @@ layout_inicio($q !== '' ? "Buscar: $q" : 'Buscar', 'buscar');
 </div>
 
 <?php if ($total): ?><p class="tenue">Se muestran hasta <?= MAX_POR_GRUPO ?> resultados por grupo; escriba más letras para acotar.</p><?php endif; ?>
-<template id="plantilla-pedir-clave">
-    <form class="revelar-clave">
-        <input type="password" required autocomplete="current-password" placeholder="Su contraseña del CRM" aria-label="Su contraseña del CRM">
-        <button type="submit" class="chico">Ver</button>
-    </form>
-</template>
 <?php
 layout_fin();

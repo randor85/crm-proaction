@@ -7,6 +7,8 @@
  */
 return [
     'app_nombre' => 'CRM ProAction',
+    // Nombre del estudio (se usa cuando "lo representamos nosotros")
+    'nombre_estudio' => 'ProAction Consultores',
 
     'db' => [
         // 'mysql' (recomendado en hosting corporativo) o 'sqlite' (pruebas / sin MySQL)
