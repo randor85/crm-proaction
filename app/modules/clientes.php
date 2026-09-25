@@ -66,6 +66,16 @@ if ($accion === 'guardar' && es_post()) {
         }
         flash('ok', 'Cliente creado.');
     }
+    // Equipo: otros ejecutivos marcados, con su área (el principal puede tener área también)
+    q('DELETE FROM cliente_ejecutivos WHERE cliente_id = ?', [$id]);
+    $areas = (array)($_POST['area'] ?? []);
+    foreach (array_keys(opciones_usuarios()) as $uid) {
+        $marcado = in_array((string)$uid, (array)($_POST['equipo'] ?? []), true);
+        $area = mb_substr(trim((string)($areas[$uid] ?? '')), 0, 60);
+        if ($marcado || ($uid === $datos['ejecutivo_id'] && $area !== '')) {
+            insertar('cliente_ejecutivos', ['cliente_id' => $id, 'usuario_id' => $uid, 'area' => nulo_si_vacio($area)]);
+        }
+    }
     redirigir(url('clientes', ['a' => 'ver', 'id' => $id]));
 }
 
@@ -141,8 +151,9 @@ if ($situacion !== '') {
 }
 $ejecutivo = entrada_int('ejecutivo_id');
 if ($ejecutivo) {
-    $condiciones[] = 'c.ejecutivo_id = :ejecutivo';
+    $condiciones[] = '(c.ejecutivo_id = :ejecutivo OR EXISTS (SELECT 1 FROM cliente_ejecutivos ce WHERE ce.cliente_id = c.id AND ce.usuario_id = :ejecutivo2))';
     $params['ejecutivo'] = $ejecutivo;
+    $params['ejecutivo2'] = $ejecutivo;
 }
 $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
 
@@ -167,9 +178,9 @@ if ($accion === 'csv') {
             (SELECT COUNT(*) FROM empresas e WHERE e.cliente_id = c.id) AS ruts
          FROM clientes c LEFT JOIN usuarios u ON u.id = c.ejecutivo_id $where ORDER BY c.nombre", $params);
     $filas = array_map(static fn($f) => [$f['nombre'], $f['rut'], TIPOS_CLIENTE[$f['tipo']] ?? $f['tipo'], $f['categoria'], $f['situacion'], $f['email'], $f['telefono'],
-        $f['ejecutivo'], implode(' + ', array_map(static fn($k) => $k['concepto'] . ': ' . cobro_resumen($k), q_todos('SELECT * FROM cobros WHERE cliente_id = ? AND activo = 1', [$f['id']]))), $f['ruts']], $filas);
+        implode(', ', array_map(static fn($m) => $m['nombre'] . ($m['area'] ? ' (' . $m['area'] . ')' : ''), equipo_cliente((int)$f['id']))), implode(' + ', array_map(static fn($k) => $k['concepto'] . ': ' . cobro_resumen($k), q_todos('SELECT * FROM cobros WHERE cliente_id = ? AND activo = 1', [$f['id']]))), $f['ruts']], $filas);
     exportar_csv('clientes_' . date('Ymd') . '.csv',
-        ['Cliente', 'RUT', 'Tipo', 'Categoría', 'Situación', 'Correo', 'Teléfono', 'Ejecutivo', 'Planes de cobro', 'N° de RUT'], $filas);
+        ['Cliente', 'RUT', 'Tipo', 'Categoría', 'Situación', 'Correo', 'Teléfono', 'Equipo a cargo', 'Planes de cobro', 'N° de RUT'], $filas);
 }
 
 /* ---------- Formulario ---------- */
@@ -187,12 +198,26 @@ if ($accion === 'form') {
         <div><?= campo('nombre', 'Nombre del cliente *', $c['nombre'] ?? '', 'text', 'required maxlength="150" placeholder="Ej.: Grupo Fuentes o Juan Pérez"') ?></div>
         <div><?= selector('tipo', 'Tipo', TIPOS_CLIENTE, $c['tipo'], false) ?></div>
         <div><?= campo('rut', 'RUT principal', $c['rut'] ?? '', 'text', 'placeholder="12.345.678-9"') ?></div>
-        <div><?= selector('ejecutivo_id', 'Ejecutivo a cargo', opciones_usuarios(), $c['ejecutivo_id'] ?? '') ?></div>
+        <div><?= selector('ejecutivo_id', 'Ejecutivo principal', opciones_usuarios(), $c['ejecutivo_id'] ?? '') ?></div>
         <div><?= selector_etiqueta('categoria', 'Categoría', valores_cliente('categoria'), $c['categoria'] ?? '') ?></div>
         <div><?= selector_etiqueta('situacion', 'Situación', valores_cliente('situacion'), $c['situacion'] ?? '') ?></div>
         <div><?= campo('email', 'Correo', $c['email'] ?? '', 'email') ?></div>
         <div><?= campo('telefono', 'Teléfono', $c['telefono'] ?? '', 'tel') ?></div>
         <div class="completo"><?= campo('direccion', 'Dirección', $c['direccion'] ?? '') ?></div>
+        <div class="completo">
+            <h3 class="separado">Equipo a cargo</h3>
+            <p class="tenue">Marque a quienes también atienden a este cliente y, si quiere, en qué área (p. ej. Remuneraciones, Contabilidad, Trámites SII).</p>
+            <?php $equipoActual = $id ? array_column(q_todos('SELECT usuario_id, area FROM cliente_ejecutivos WHERE cliente_id = ?', [$id]), 'area', 'usuario_id') : []; ?>
+            <table class="tabla-equipo"><tbody>
+            <?php foreach (opciones_usuarios() as $uid => $nombreU): ?>
+                <tr>
+                    <td><label class="check"><input type="checkbox" name="equipo[]" value="<?= (int)$uid ?>" <?= array_key_exists($uid, $equipoActual) ? 'checked' : '' ?>> <?= e($nombreU) ?></label></td>
+                    <td><input type="text" name="area[<?= (int)$uid ?>]" value="<?= e($equipoActual[$uid] ?? '') ?>" maxlength="60" placeholder="Área (opcional)" list="areas-equipo" aria-label="Área de <?= e($nombreU) ?>"></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody></table>
+            <datalist id="areas-equipo"><?php foreach (['Tributario', 'Contabilidad', 'Remuneraciones', 'Trámites SII', 'Facturación', 'Legal'] as $ar): ?><option value="<?= e($ar) ?>"><?php endforeach; ?></datalist>
+        </div>
         <?php if (!$id): ?>
         <div class="completo"><h3 class="separado">Honorario (opcional)</h3>
             <p class="tenue">Crea el primer plan de cobro. Después puede agregar otros (p. ej. la renta anual) desde la ficha del cliente.</p></div>
@@ -268,7 +293,10 @@ if ($accion === 'ver' && $id) {
                 <dt>Categoría</dt><dd><?php if ($c['categoria']): ?><a href="<?= e(url('clientes', ['categoria' => $c['categoria']])) ?>"><?= e($c['categoria']) ?></a><?php endif; ?></dd>
                 <dt>Situación</dt><dd><?php if ($c['situacion']): ?><a href="<?= e(url('clientes', ['situacion' => $c['situacion']])) ?>"><?= e($c['situacion']) ?></a><?php endif; ?></dd>
                 <dt>RUT</dt><dd><?= e($c['rut']) ?></dd>
-                <dt>Ejecutivo</dt><dd><?= e($c['ejecutivo']) ?></dd>
+                <dt>Equipo a cargo</dt><dd><?php foreach (equipo_cliente($id) as $m): ?>
+                    <div><?= $m['principal'] ? '<strong>' . e($m['nombre']) . '</strong>' : e($m['nombre']) ?>
+                        <small class="tenue"><?= e(implode(' · ', array_filter([$m['area'], $m['principal'] ? 'principal' : null]))) ?></small></div>
+                    <?php endforeach; ?></dd>
                 <dt>Correo</dt><dd><?php if ($c['email']): ?><a href="mailto:<?= e($c['email']) ?>"><?= e($c['email']) ?></a><?php endif; ?></dd>
                 <dt>Teléfono</dt><dd><?= e($c['telefono']) ?></dd>
                 <dt>Dirección</dt><dd><?= e($c['direccion']) ?></dd>
@@ -360,7 +388,12 @@ $clientes = q_todos(
     $params + ['hoy' => $hoy]
 );
 $cobrosLista = [];
+$equipoLista = [];
 if ($clientes) {
+    foreach (q_todos('SELECT ce.cliente_id, u.nombre FROM cliente_ejecutivos ce JOIN usuarios u ON u.id = ce.usuario_id
+        WHERE ce.cliente_id IN (' . implode(',', array_map('intval', array_column($clientes, 'id'))) . ') ORDER BY u.nombre') as $m) {
+        $equipoLista[$m['cliente_id']][] = $m['nombre'];
+    }
     foreach (q_todos('SELECT * FROM cobros WHERE activo = 1 AND cliente_id IN (' . implode(',', array_map('intval', array_column($clientes, 'id'))) . ') ORDER BY periodicidad, concepto') as $k) {
         $cobrosLista[$k['cliente_id']][] = $k;
     }
@@ -379,7 +412,7 @@ layout_inicio('Clientes', 'clientes');
 <?= csrf_campo() ?>
 <input type="hidden" name="volver" value="<?= e('index.php?' . http_build_query($_GET)) ?>">
 <table>
-    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todos"></th><th>Cliente</th><th>RUT</th><th>Tipo</th><th>Categoría</th><th>Tareas abiertas</th><th>Cobros</th><th>Ejecutivo</th></tr></thead>
+    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todos"></th><th>Cliente</th><th>RUT</th><th>Tipo</th><th>Categoría</th><th>Tareas abiertas</th><th>Cobros</th><th>Equipo</th></tr></thead>
     <tbody>
     <?php foreach ($clientes as $c): ?>
         <tr class="<?= $c['activo'] ? '' : 'hecha' ?>">
@@ -390,7 +423,8 @@ layout_inicio('Clientes', 'clientes');
             <td><?= e($c['categoria']) ?><?php if ($c['situacion']): ?><br><small class="tenue"><?= e($c['situacion']) ?></small><?php endif; ?></td>
             <td><?= (int)$c['n_tareas'] ?><?php if ($c['n_vencidas'] > 0): ?> <span class="badge tarea-vencida"><?= (int)$c['n_vencidas'] ?> vencida(s)</span><?php endif; ?></td>
             <td><?php foreach ($cobrosLista[$c['id']] ?? [] as $k): ?><div class="nowrap"><?= e(cobro_monto_texto($k)) ?> <small class="tenue"><?= e(mb_strtolower(PERIODICIDADES[$k['periodicidad']] ?? '')) ?><?= $k['periodicidad'] === 'anual' ? ' · ' . e(MESES[(int)$k['mes_inicio']]) : '' ?></small></div><?php endforeach; ?></td>
-            <td><?= e($c['ejecutivo']) ?></td>
+            <td><?= e($c['ejecutivo']) ?><?php $otros = array_diff($equipoLista[$c['id']] ?? [], [$c['ejecutivo']]);
+                if ($otros): ?><br><small class="tenue">+ <?= e(implode(', ', $otros)) ?></small><?php endif; ?></td>
         </tr>
     <?php endforeach; ?>
     <?php if (!$clientes): ?><tr><td colspan="8" class="vacio">No se encontraron clientes.</td></tr><?php endif; ?>

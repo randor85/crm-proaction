@@ -277,3 +277,7 @@ details.panel.subform { margin-top: 0; }
 .ingreso-sii h3 { margin-top: 0; }
 .enlace-generado { border-left: 3px solid var(--primario); }
 .enlace-generado .grupo-input { margin: .5rem 0; }
+
+.tabla-equipo { max-width: 560px; }
+.tabla-equipo td { border: 0; padding: .2rem .4rem .2rem 0; vertical-align: middle; }
+.tabla-equipo label.check { margin: 0; }

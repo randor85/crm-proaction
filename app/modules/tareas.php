@@ -194,7 +194,7 @@ if ($accion === 'form') {
         </div>
         <div><?= selector('cliente_id', 'Cliente', opciones_clientes(), $t['cliente_id'] ?? '', 'Sin cliente (tarea interna)') ?></div>
         <div><?= selector_empresa('empresa_id', 'RUT / Empresa', $t['empresa_id'] ?? '', 'Todas / no aplica') ?></div>
-        <div><?= selector('responsable_id', 'Responsable', opciones_usuarios(), $t['responsable_id'] ?? '') ?></div>
+        <div><?= selector('responsable_id', 'Responsable', opciones_responsables($t['cliente_id'] ? (int)$t['cliente_id'] : null), $t['responsable_id'] ?? '') ?></div>
         <div><?= campo('vencimiento', 'Vencimiento', $t['vencimiento'] ?? '', 'date') ?></div>
         <div><?= selector('estado', 'Estado', ESTADOS_TAREA, $t['estado'], false) ?></div>
         <div><?= selector('prioridad', 'Prioridad', PRIORIDADES, $t['prioridad'], false) ?></div>

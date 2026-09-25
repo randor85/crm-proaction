@@ -102,6 +102,41 @@ function opciones_empresas(?int $clienteId = null): array
     return $op;
 }
 
+/**
+ * Equipo a cargo de un cliente: el ejecutivo principal primero y luego los demás, con su área.
+ * @return array<int, array{id:int, nombre:string, area:?string, principal:bool}>
+ */
+function equipo_cliente(int $clienteId): array
+{
+    $equipo = [];
+    $principal = q_uno('SELECT u.id, u.nombre FROM clientes c JOIN usuarios u ON u.id = c.ejecutivo_id WHERE c.id = ?', [$clienteId]);
+    $areas = array_column(q_todos('SELECT usuario_id, area FROM cliente_ejecutivos WHERE cliente_id = ?', [$clienteId]), 'area', 'usuario_id');
+    if ($principal) {
+        $equipo[(int)$principal['id']] = ['id' => (int)$principal['id'], 'nombre' => $principal['nombre'],
+            'area' => $areas[$principal['id']] ?? null, 'principal' => true];
+    }
+    foreach (q_todos(
+        'SELECT u.id, u.nombre, ce.area FROM cliente_ejecutivos ce JOIN usuarios u ON u.id = ce.usuario_id
+         WHERE ce.cliente_id = ? AND u.activo = 1 ORDER BY u.nombre', [$clienteId]) as $u) {
+        $equipo[(int)$u['id']] ??= ['id' => (int)$u['id'], 'nombre' => $u['nombre'], 'area' => $u['area'], 'principal' => false];
+    }
+    return array_values($equipo);
+}
+
+/** Usuarios para elegir responsable: primero el equipo del cliente (con su área), luego el resto. */
+function opciones_responsables(?int $clienteId): array
+{
+    $todos = opciones_usuarios();
+    if (!$clienteId) {
+        return $todos;
+    }
+    $op = [];
+    foreach (equipo_cliente($clienteId) as $m) {
+        $op[$m['id']] = $m['nombre'] . ($m['area'] ? ' · ' . $m['area'] : '') . ($m['principal'] ? ' (principal)' : '');
+    }
+    return $op + $todos;
+}
+
 function opciones_clientes(bool $soloActivos = true): array
 {
     $where = $soloActivos ? 'WHERE activo = 1' : '';

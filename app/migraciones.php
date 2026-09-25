@@ -250,6 +250,19 @@ const MIGRACIONES = [
         {FIN}',
         'CREATE INDEX idx_enlaces_token ON enlaces_clave (token_hash)',
     ],
+
+    // Varios ejecutivos por cliente (además del principal, clientes.ejecutivo_id), cada uno con su área
+    '2026_09_25_equipo_cliente' => [
+        'CREATE TABLE cliente_ejecutivos (
+            cliente_id {INT} NOT NULL,
+            usuario_id {INT} NOT NULL,
+            area       VARCHAR(60) NULL,
+            PRIMARY KEY (cliente_id, usuario_id),
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+        {FIN}',
+        'CREATE INDEX idx_cliente_ejecutivos_usuario ON cliente_ejecutivos (usuario_id)',
+    ],
 ];
 
 function migracion_sql(string $sql): string
