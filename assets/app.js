@@ -75,6 +75,17 @@
         mostrarCalendario();
     }
 
+    /* Casilla que habilita un campo (p. ej. contraseña manual): data-activa="id del campo". */
+    document.querySelectorAll('[data-activa]').forEach(function (casilla) {
+        var campo = document.getElementById(casilla.getAttribute('data-activa'));
+        if (!campo) { return; }
+        casilla.addEventListener('change', function () {
+            campo.disabled = !casilla.checked;
+            campo.required = casilla.checked;
+            if (casilla.checked) { campo.focus(); } else { campo.value = ''; }
+        });
+    });
+
     /* Casilla "marcar todos" de las listas con acciones masivas. */
     document.addEventListener('change', function (ev) {
         if (!ev.target.matches('[data-marcar-todos]')) { return; }

@@ -232,6 +232,24 @@ const MIGRACIONES = [
         'ALTER TABLE empresas ADD COLUMN mandato_hasta DATE NULL',
         'ALTER TABLE empresas ADD COLUMN mandato_notas TEXT NULL',
     ],
+
+    // Enlaces de un solo uso para crear la contraseña (invitación) o recuperarla
+    '2026_09_25_enlaces_clave' => [
+        'CREATE TABLE enlaces_clave (
+            id         {ID},
+            usuario_id {INT} NOT NULL,
+            tipo       VARCHAR(15) NOT NULL,
+            token_hash CHAR(64) NOT NULL,
+            expira_en  DATETIME NOT NULL,
+            usado_en   DATETIME NULL,
+            creado_por {INT} NULL,
+            ip         VARCHAR(45) NULL,
+            creado_en  DATETIME NOT NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+            FOREIGN KEY (creado_por) REFERENCES usuarios(id) ON DELETE SET NULL
+        {FIN}',
+        'CREATE INDEX idx_enlaces_token ON enlaces_clave (token_hash)',
+    ],
 ];
 
 function migracion_sql(string $sql): string

@@ -59,6 +59,7 @@ layout_inicio('Ingresar');
             <?= campo('clave', 'Contraseña', '', 'password', 'required autocomplete="current-password"') ?>
             <button type="submit">Ingresar</button>
         </form>
+        <p class="centrado"><a href="olvide.php">¿Olvidó su contraseña?</a></p>
     <?php endif; ?>
 </div>
 <?php

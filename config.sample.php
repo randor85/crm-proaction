@@ -50,6 +50,11 @@ return [
     'documentos_ruta' => __DIR__ . '/data/documentos',
     'documentos_max_mb' => 20,
 
+    // Correos (invitaciones y recuperación de contraseña). 'mail' usa el correo del hosting;
+    // 'archivo' los guarda en data/correos.log (pruebas locales).
+    'correo_modo' => 'mail',
+    'correo_remitente' => 'no-reply@suempresa.com',
+
     // Retención de boletas de honorarios (%): 2026 = 15,25 · 2027 = 16 · 2028 = 17.
     'retencion_honorarios' => 15.25,
 ];

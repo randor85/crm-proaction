@@ -275,3 +275,5 @@ details.panel.subform { margin-top: 0; }
 
 .ingreso-sii { margin-top: 1rem; padding: .75rem 1rem; border: 1px solid var(--borde); border-left: 3px solid var(--primario); border-radius: 6px; background: #f8fafc; }
 .ingreso-sii h3 { margin-top: 0; }
+.enlace-generado { border-left: 3px solid var(--primario); }
+.enlace-generado .grupo-input { margin: .5rem 0; }

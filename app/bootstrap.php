@@ -26,6 +26,7 @@ require APP_DIR . '/migraciones.php';
 require APP_DIR . '/seguridad.php';
 require APP_DIR . '/indicadores.php';
 require APP_DIR . '/cobros.php';
+require APP_DIR . '/cuentas.php';
 
 // El feed de calendario (ical.php) lo consultan los servidores de Google/Microsoft:
 // no usa sesión ni restricción por IP; se protege con un token secreto por usuario.
