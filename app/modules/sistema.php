@@ -26,6 +26,54 @@ if ($accion === 'indicador' && es_post()) {
     redirigir(url('sistema'));
 }
 
+/* ---------- Reorganización única de la planilla histórica ---------- */
+if (in_array($accion, ['reorganizar_vista', 'reorganizar_aplicar'], true) && es_post()) {
+    $aplicar = $accion === 'reorganizar_aplicar';
+    if (reorganizacion_aplicada()) {
+        flash('error', 'La reorganización ya se aplicó el ' . fecha(reorganizacion_aplicada(), true) . '.');
+        redirigir(url('sistema') . '#reorganizacion');
+    }
+    if ($aplicar && entrada('respaldo') !== '1') {
+        flash('error', 'Confirme que respaldó la base de datos antes de aplicar.');
+        redirigir(url('sistema') . '#reorganizacion');
+    }
+    try {
+        $informe = reorganizar_datos($aplicar);
+    } catch (Throwable $ex) {
+        error_log('CRM - error en la reorganización: ' . $ex->getMessage());
+        flash('error', 'No se cambió nada: la reorganización falló (' . $ex->getMessage() . ').');
+        redirigir(url('sistema') . '#reorganizacion');
+    }
+    layout_inicio($aplicar ? 'Reorganización aplicada' : 'Vista previa de la reorganización', 'sistema');
+    ?>
+    <h1><?= $aplicar ? 'Reorganización aplicada' : 'Vista previa de la reorganización' ?></h1>
+    <div class="alerta alerta-<?= $aplicar ? 'ok' : 'aviso' ?>"><?= $aplicar
+        ? 'Los cambios quedaron guardados.'
+        : 'Esto es solo una simulación: se calculó todo y se deshizo. La base no cambió.' ?></div>
+    <?php foreach ($informe as $paso => $lineas): ?>
+        <section class="panel">
+            <h2><?= e($paso) ?></h2>
+            <ul><?php foreach ($lineas as $l): ?><li><?= e($l) ?></li><?php endforeach; ?></ul>
+        </section>
+    <?php endforeach; ?>
+    <?php if (!$aplicar): ?>
+    <section class="panel">
+        <h2>¿Aplicar?</h2>
+        <form method="post" action="<?= e(url('sistema', ['a' => 'reorganizar_aplicar'])) ?>" class="formulario">
+            <?= csrf_campo() ?>
+            <label class="check"><input type="checkbox" name="respaldo" value="1" required> Respaldé la base de datos (cPanel → Copias de seguridad → base proactio_crm)</label>
+            <div class="acciones">
+                <button type="submit" onclick="return confirm('¿Aplicar la reorganización? No tiene vuelta atrás salvo restaurando el respaldo.')">Aplicar la reorganización</button>
+                <a class="boton secundario" href="<?= e(url('sistema')) ?>">Volver</a>
+            </div>
+        </form>
+    </section>
+    <?php endif; ?>
+    <?php
+    layout_fin();
+    return;
+}
+
 $dirDocs = documentos_ruta();
 $docsOk = is_dir($dirDocs) ? is_writable($dirDocs) : is_writable(dirname($dirDocs));
 $dentroWeb = static fn(string $ruta): bool => strpos(str_replace('\\', '/', realpath(dirname($ruta)) ?: $ruta),
@@ -58,6 +106,19 @@ layout_inicio('Sistema', 'sistema');
         <tr><td>ℹ️</td><td>Verificación en dos pasos para credenciales</td><td class="tenue"><?= credenciales_requieren_2fa() ? 'Exigida' : 'Opcional (se pide la contraseña para mostrar cada clave). Se cambia con "credenciales_requiere_2fa" en config.local.php.' ?></td></tr>
         <tr><td>ℹ️</td><td>Tamaño máximo de subida</td><td class="tenue"><?= e(ini_get('upload_max_filesize')) ?> por archivo · <?= e(ini_get('post_max_size')) ?> por envío</td></tr>
     </tbody></table>
+</section>
+
+<section class="panel" id="reorganizacion">
+    <h2>Reorganizar datos de la planilla histórica</h2>
+    <?php if ($fechaReorg = reorganizacion_aplicada()): ?>
+        <p>✅ Aplicada el <?= e(fecha($fechaReorg, true)) ?>.</p>
+    <?php else: ?>
+        <p>Ordena lo importado de la planilla según lo acordado: grupos Lefimil y Angel Villar como un cliente cada uno,
+            «Del pasado» como ex-clientes, listas del SII y «A futuro/Para probar» como prospectos, responsables de tareas y Pedro Alvares
+            como contactos, socios persona con su RUT dentro del cliente, y correcciones de socios, credenciales y notas.</p>
+        <p>Primero vea la <strong>vista previa</strong>: calcula todo y lo deshace, sin cambiar nada.</p>
+        <?= boton_post(url('sistema', ['a' => 'reorganizar_vista']), 'Ver vista previa', 'secundario') ?>
+    <?php endif; ?>
 </section>
 
 <section class="panel">

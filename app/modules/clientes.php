@@ -14,59 +14,6 @@ function valores_cliente(string $columna): array
         q_todos("SELECT DISTINCT $columna AS v FROM clientes WHERE $columna IS NOT NULL ORDER BY $columna"), 'v');
 }
 
-/**
- * Convierte un cliente en prospecto: crea una oportunidad en etapa "prospecto" con su empresa,
- * deja sus RUT, tareas, gestiones, credenciales y documentos ligados a la empresa y lo quita de Clientes.
- * No convierte clientes con facturas o planes de cobro.
- * @return string|null motivo si no se pudo convertir
- */
-function convertir_en_prospecto(int $clienteId): ?string
-{
-    $c = q_uno('SELECT * FROM clientes WHERE id = ?', [$clienteId]);
-    if (!$c) {
-        return 'no existe';
-    }
-    if (q_valor('SELECT COUNT(*) FROM facturas WHERE cliente_id = ?', [$clienteId]) || q_valor('SELECT COUNT(*) FROM cobros WHERE cliente_id = ?', [$clienteId])) {
-        return 'tiene facturación o planes de cobro';
-    }
-    $empresas = array_column(q_todos('SELECT id FROM empresas WHERE cliente_id = ? ORDER BY id', [$clienteId]), 'id');
-    if (!$empresas) {
-        // Sin ficha de RUT: se crea una para no perder sus datos
-        $rutLibre = $c['rut'] && !q_valor('SELECT id FROM empresas WHERE identificacion = ?', [$c['rut']]) ? $c['rut'] : null;
-        $empresas[] = insertar('empresas', [
-            'nombre' => $c['nombre'], 'identificacion' => $rutLibre, 'email' => $c['email'], 'telefono' => $c['telefono'],
-            'direccion' => $c['direccion'], 'responsable_id' => $c['ejecutivo_id'], 'creado_en' => ahora(), 'actualizado_en' => ahora(),
-        ]);
-    }
-    $principal = (int)$empresas[0];
-    $origen = implode(' · ', array_filter([
-        'Convertido desde Clientes el ' . date('d/m/Y'),
-        $c['categoria'] ? 'categoría ' . $c['categoria'] : null,
-        $c['situacion'] ? 'situación ' . $c['situacion'] : null,
-    ]));
-    $oportunidad = insertar('oportunidades', [
-        'titulo'         => mb_substr($c['nombre'], 0, 150),
-        'empresa_id'     => $principal,
-        'contacto_id'    => q_valor('SELECT MIN(id) FROM contactos WHERE empresa_id = ?', [$principal]),
-        'monto'          => 0,
-        'etapa'          => 'prospecto',
-        'probabilidad'   => 10,
-        'responsable_id' => $c['ejecutivo_id'],
-        'notas'          => trim($origen . ".\n" . ($c['notas'] ?? '')),
-        'creado_en'      => ahora(),
-        'actualizado_en' => ahora(),
-    ]);
-    // Todo lo que colgaba del cliente pasa a su empresa (si no tenía una propia)
-    foreach (['tareas', 'credenciales', 'documentos'] as $tabla) {
-        q("UPDATE $tabla SET empresa_id = COALESCE(empresa_id, ?), cliente_id = NULL WHERE cliente_id = ?", [$principal, $clienteId]);
-    }
-    q('UPDATE actividades SET empresa_id = COALESCE(empresa_id, ?), oportunidad_id = COALESCE(oportunidad_id, ?), cliente_id = NULL WHERE cliente_id = ?',
-        [$principal, $oportunidad, $clienteId]);
-    q('UPDATE empresas SET cliente_id = NULL, actualizado_en = ? WHERE cliente_id = ?', [ahora(), $clienteId]);
-    q('DELETE FROM clientes WHERE id = ?', [$clienteId]);
-    return null;
-}
-
 /* ---------- Guardar ---------- */
 if ($accion === 'guardar' && es_post()) {
     [$rut, $errorRut] = rut_entrada('rut');
@@ -243,7 +190,7 @@ if ($accion === 'masivo' && es_post()) {
     foreach ($destino as $cid) {
         actualizar('clientes', (int)$cid, $cambios + ['actualizado_en' => ahora()]);
     }
-    $nombres = ['categoria' => 'categoría', 'situacion' => 'situación', 'ejecutivo_id' => 'ejecutivo', 'activo' => 'estado'];
+    $nombres = ['categoria' => 'categoría', 'situacion' => 'etiqueta', 'ejecutivo_id' => 'ejecutivo', 'activo' => 'estado'];
     $textos = [];
     foreach ($cambios as $campo => $valor) {
         $textos[] = $nombres[$campo] . ' → ' . ($campo === 'activo' ? ($valor ? 'activo' : 'inactivo')
@@ -261,7 +208,7 @@ if ($accion === 'csv') {
     $filas = array_map(static fn($f) => [$f['nombre'], $f['rut'], TIPOS_CLIENTE[$f['tipo']] ?? $f['tipo'], $f['categoria'], $f['situacion'], $f['email'], $f['telefono'],
         implode(', ', array_map(static fn($m) => $m['nombre'] . ($m['area'] ? ' (' . $m['area'] . ')' : ''), equipo_cliente((int)$f['id']))), implode(' + ', array_map(static fn($k) => $k['concepto'] . ': ' . cobro_resumen($k), q_todos('SELECT * FROM cobros WHERE cliente_id = ? AND activo = 1', [$f['id']]))), $f['ruts']], $filas);
     exportar_csv('clientes_' . date('Ymd') . '.csv',
-        ['Cliente', 'RUT', 'Tipo', 'Categoría', 'Situación', 'Correo', 'Teléfono', 'Equipo a cargo', 'Planes de cobro', 'N° de RUT'], $filas);
+        ['Cliente', 'RUT', 'Tipo', 'Categoría', 'Etiqueta', 'Correo', 'Teléfono', 'Equipo a cargo', 'Planes de cobro', 'N° de RUT'], $filas);
 }
 
 /* ---------- Formulario ---------- */
@@ -281,7 +228,7 @@ if ($accion === 'form') {
         <div><?= campo('rut', 'RUT principal', $c['rut'] ?? '', 'text', 'placeholder="12.345.678-9"') ?></div>
         <div><?= selector('ejecutivo_id', 'Ejecutivo principal', opciones_usuarios(), $c['ejecutivo_id'] ?? '') ?></div>
         <div><?= selector_etiqueta('categoria', 'Categoría', valores_cliente('categoria'), $c['categoria'] ?? '') ?></div>
-        <div><?= selector_etiqueta('situacion', 'Situación', valores_cliente('situacion'), $c['situacion'] ?? '') ?></div>
+        <div><?= selector_etiqueta('situacion', 'Etiqueta (en cobranza, en venta…)', valores_cliente('situacion'), $c['situacion'] ?? '') ?></div>
         <div><?= campo('email', 'Correo', $c['email'] ?? '', 'email') ?></div>
         <div><?= campo('telefono', 'Teléfono', $c['telefono'] ?? '', 'tel') ?></div>
         <div class="completo"><?= campo('direccion', 'Dirección', $c['direccion'] ?? '') ?></div>
@@ -310,7 +257,7 @@ if ($accion === 'form') {
         <?php endif; ?>
         <div class="completo"><?= area('notas', 'Notas', $c['notas'] ?? '') ?></div>
         <div class="completo">
-            <label class="check"><input type="checkbox" name="activo" value="1" <?= $c['activo'] ? 'checked' : '' ?>> Cliente activo</label>
+            <label class="check"><input type="checkbox" name="activo" value="1" <?= $c['activo'] ? 'checked' : '' ?>> Cliente activo (desmarcar = ex-cliente)</label>
             <?php if (!$id): ?>
             <label class="check"><input type="checkbox" name="crear_empresa" value="1" checked> Crear también la ficha de este RUT en Empresas</label>
             <?php endif; ?>
@@ -372,7 +319,7 @@ if ($accion === 'ver' && $id) {
             <dl class="ficha">
                 <dt>Tipo</dt><dd><?= e(TIPOS_CLIENTE[$c['tipo']] ?? $c['tipo']) ?></dd>
                 <dt>Categoría</dt><dd><?php if ($c['categoria']): ?><a href="<?= e(url('clientes', ['categoria' => $c['categoria']])) ?>"><?= e($c['categoria']) ?></a><?php endif; ?></dd>
-                <dt>Situación</dt><dd><?php if ($c['situacion']): ?><a href="<?= e(url('clientes', ['situacion' => $c['situacion']])) ?>"><?= e($c['situacion']) ?></a><?php endif; ?></dd>
+                <dt>Etiqueta</dt><dd><?php if ($c['situacion']): ?><a href="<?= e(url('clientes', ['situacion' => $c['situacion']])) ?>"><?= e($c['situacion']) ?></a><?php endif; ?></dd>
                 <dt>RUT</dt><dd><?= e($c['rut']) ?></dd>
                 <dt>Equipo a cargo</dt><dd><?php foreach (equipo_cliente($id) as $m): ?>
                     <div><?= $m['principal'] ? '<strong>' . e($m['nombre']) . '</strong>' : e($m['nombre']) ?>
@@ -484,9 +431,9 @@ layout_inicio('Clientes', 'clientes');
 ?>
 <h1>Clientes</h1>
 <?php barra_lista('clientes', '+ Nuevo cliente', true, [
-    selector('estado', '', ['activos' => 'Activos', 'inactivos' => 'Inactivos', 'todos' => 'Todos'], $estado, false, 'aria-label="Estado"'),
+    selector('estado', '', ['activos' => 'Activos', 'inactivos' => 'Ex-clientes', 'todos' => 'Todos'], $estado, false, 'aria-label="Estado"'),
     selector('categoria', '', array_combine(valores_cliente('categoria'), valores_cliente('categoria')), $categoria, 'Todas las categorías', 'aria-label="Categoría"'),
-    selector('situacion', '', array_combine(valores_cliente('situacion'), valores_cliente('situacion')), $situacion, 'Todas las situaciones', 'aria-label="Situación"'),
+    selector('situacion', '', array_combine(valores_cliente('situacion'), valores_cliente('situacion')), $situacion, 'Todas las etiquetas', 'aria-label="Etiqueta"'),
     selector('ejecutivo_id', '', opciones_usuarios(), $ejecutivo ?? '', 'Todos los ejecutivos', 'aria-label="Ejecutivo"'),
 ]); ?>
 <form method="post" action="<?= e(url('clientes', ['a' => 'masivo'])) ?>" id="form-masivo">
@@ -517,7 +464,7 @@ layout_inicio('Clientes', 'clientes');
     <h2>Cambiar varios a la vez</h2>
     <div class="fila-formulario formulario">
         <div><?= selector_etiqueta('m_categoria', 'Categoría', valores_cliente('categoria'), '__igual__', ['__igual__' => '— No cambiar —', '' => '— Quitar categoría —']) ?></div>
-        <div><?= selector_etiqueta('m_situacion', 'Situación', valores_cliente('situacion'), '__igual__', ['__igual__' => '— No cambiar —', '' => '— Quitar situación —']) ?></div>
+        <div><?= selector_etiqueta('m_situacion', 'Etiqueta', valores_cliente('situacion'), '__igual__', ['__igual__' => '— No cambiar —', '' => '— Quitar etiqueta —']) ?></div>
         <div><?= selector('m_ejecutivo_id', 'Ejecutivo', opciones_usuarios(), '', '— No cambiar —') ?></div>
         <div><?= selector('m_activo', 'Estado', ['1' => 'Activo', '0' => 'Inactivo'], '', '— No cambiar —') ?></div>
     </div>
