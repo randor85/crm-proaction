@@ -108,7 +108,8 @@
         bloque.classList.toggle('flotante', n > 0);
         var contador = bloque.querySelector('[data-contador-masivo]');
         if (contador) {
-            contador.textContent = n ? '· ' + n + ' marcado' + (n === 1 ? '' : 's') : '· marque clientes en la lista o elija «todos los del filtro»';
+            if (!contador.hasAttribute('data-texto')) { contador.setAttribute('data-texto', contador.textContent); }
+            contador.textContent = n ? '· ' + n + ' marcado' + (n === 1 ? '' : 's') : contador.getAttribute('data-texto');
         }
     }
 

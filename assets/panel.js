@@ -194,10 +194,13 @@
     /* Botones rápidos de la lista (p. ej. "✓ Hecho") con el panel abierto: se guardan sin perder la ficha abierta. */
     principal.addEventListener('submit', function (ev) {
         var form = ev.target;
-        if (ev.defaultPrevented || !document.body.classList.contains('con-panel') || !form.matches('form.en-linea')
+        var rapido = ev.submitter && ev.submitter.hasAttribute('data-rapido');
+        if (ev.defaultPrevented || !document.body.classList.contains('con-panel') || !(rapido || form.matches('form.en-linea'))
             || (form.getAttribute('method') || '').toLowerCase() !== 'post') { return; }
         ev.preventDefault();
-        fetch(form.getAttribute('action'), { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+        var datos = new FormData(form);
+        if (rapido && ev.submitter.name) { datos.append(ev.submitter.name, ev.submitter.value); }
+        fetch(rapido ? ev.submitter.getAttribute('formaction') : form.getAttribute('action'), { method: 'POST', body: datos, credentials: 'same-origin' })
             .then(function () {
                 refrescarLista();
                 if (actual) { cargar(actual, { sinHistorial: true }); }

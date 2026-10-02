@@ -298,6 +298,38 @@ if ($accion === 'ver' && $id) {
     return;
 }
 
+/* ---------- Cambio masivo: qué cambiar y a cuáles (se aplica tras calcular los filtros) ---------- */
+if ($accion === 'masivo' && es_post()) {
+    $cambios = [];
+    if (ctype_digit(entrada('m_responsable_id'))) {
+        $cambios['responsable_id'] = (int)entrada('m_responsable_id');
+    }
+    if (isset(PRIORIDADES[entrada('m_prioridad')])) {
+        $cambios['prioridad'] = entrada('m_prioridad');
+    }
+    if (entrada('m_quitar_vencimiento') === '1') {
+        $cambios['vencimiento'] = null;
+    } elseif ($v = entrada_fecha('m_vencimiento')) {
+        $cambios['vencimiento'] = $v;
+    }
+    $nuevoEstado = isset(ESTADOS_TAREA[entrada('m_estado')]) ? entrada('m_estado') : null;
+    $volver = (string)($_POST['volver'] ?? '');
+    $volver = strpos($volver, 'index.php?r=tareas') === 0 ? $volver : url('tareas');
+    if (entrada('todos_filtro') === '1') {
+        // Reaplicar los mismos filtros de la lista (vienen en la URL de retorno)
+        parse_str((string)parse_url($volver, PHP_URL_QUERY), $filtroLista);
+        $_GET = $filtroLista;
+        $_POST = array_intersect_key($_POST, ['csrf' => 1]);
+        $ids = null;
+    } else {
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? []))));
+    }
+    if ((!$cambios && !$nuevoEstado) || $ids === []) {
+        flash('error', !$cambios && !$nuevoEstado ? 'No eligió ningún cambio.' : 'No marcó ninguna tarea.');
+        redirigir($volver);
+    }
+}
+
 /* ---------- Lista ---------- */
 $condiciones = [];
 [$filtro, $params] = filtro_busqueda(['t.titulo', 't.descripcion', 'c.nombre', 'e.nombre', 'e.identificacion'], entrada('q'));
@@ -330,6 +362,33 @@ if ($filtroCliente) {
 $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
 $orden = $estado === 'completada' ? 't.completada_en DESC' : 't.vencimiento IS NULL, t.vencimiento, t.id';
 
+if ($accion === 'masivo' && es_post()) {
+    $destino = $ids === null
+        ? array_column(q_todos("SELECT t.id FROM tareas t LEFT JOIN clientes c ON c.id = t.cliente_id
+            LEFT JOIN empresas e ON e.id = t.empresa_id $where", $params), 'id')
+        : $ids;
+    $cambiadas = 0;
+    $nuevas = 0;
+    db()->beginTransaction();
+    foreach ($destino as $tid) {
+        if ($cambios) {
+            actualizar('tareas', (int)$tid, $cambios + ['actualizado_en' => ahora()]);
+        }
+        if ($nuevoEstado) {
+            $t = q_uno('SELECT * FROM tareas WHERE id = ?', [$tid]);
+            if ($nuevoEstado === 'completada' && $t['estado'] !== 'completada') {
+                $nuevas += completar_tarea($t) ? 1 : 0;   // las recurrentes generan la siguiente
+            } elseif ($nuevoEstado !== 'completada' && $t['estado'] !== $nuevoEstado) {
+                q('UPDATE tareas SET estado = ?, completada_en = NULL, actualizado_en = ? WHERE id = ?', [$nuevoEstado, ahora(), $tid]);
+            }
+        }
+        $cambiadas++;
+    }
+    db()->commit();
+    flash('ok', $cambiadas . ' tarea(s) actualizada(s).' . ($nuevas ? " Se crearon $nuevas tarea(s) recurrente(s) siguientes." : ''));
+    redirigir($volver);
+}
+
 $desdeTabla = 'FROM tareas t LEFT JOIN clientes c ON c.id = t.cliente_id LEFT JOIN empresas e ON e.id = t.empresa_id
      LEFT JOIN usuarios u ON u.id = t.responsable_id';
 
@@ -360,11 +419,15 @@ layout_inicio('Tareas', 'tareas');
     selector('cliente_id', '', opciones_clientes(), $filtroCliente ?? '', 'Todos los clientes', 'aria-label="Cliente"'),
 ]); ?>
 <p class="derecha"><a href="<?= e(url('tareas', ['a' => 'csv'] + array_intersect_key($_GET, array_flip(['q', 'estado', 'quien', 'cliente_id'])))) ?>">Exportar CSV</a></p>
+<form method="post" action="<?= e(url('tareas', ['a' => 'masivo'])) ?>" id="form-masivo">
+<?= csrf_campo() ?>
+<input type="hidden" name="volver" value="<?= e('index.php?' . http_build_query(['r' => 'tareas'] + $_GET)) ?>">
 <table>
-    <thead><tr><th>Vence</th><th>Tarea</th><th>Cliente / RUT</th><th>Estado</th><th>Responsable</th><th></th></tr></thead>
+    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todas"></th><th>Vence</th><th>Tarea</th><th>Cliente / RUT</th><th>Estado</th><th>Responsable</th><th></th></tr></thead>
     <tbody>
     <?php foreach ($tareas as $t): ?>
         <tr class="<?= $t['estado'] === 'completada' ? 'hecha' : clase_vencimiento($t['vencimiento'], $t['estado']) ?>">
+            <td class="casilla"><input type="checkbox" name="ids[]" value="<?= (int)$t['id'] ?>" aria-label="Marcar <?= e($t['titulo']) ?>"></td>
             <td class="nowrap"><?= e(fecha($t['vencimiento'])) ?></td>
             <td><a href="<?= e(url('tareas', ['a' => 'ver', 'id' => $t['id']])) ?>"><?= e($t['titulo']) ?></a>
                 <?php if ($t['prioridad'] === 'alta'): ?><span class="badge prioridad-alta">Alta</span><?php endif; ?>
@@ -374,16 +437,35 @@ layout_inicio('Tareas', 'tareas');
             <td><?= badge_tarea($t['estado']) ?></td>
             <td><?= e($t['responsable']) ?></td>
             <td class="derecha nowrap"><?php if ($t['estado'] !== 'completada'): ?>
-                <form method="post" action="<?= e(url('tareas', ['a' => 'estado', 'id' => $t['id'], 'volver' => 'lista'])) ?>" class="en-linea">
-                    <?= csrf_campo() ?><input type="hidden" name="estado" value="completada">
-                    <button type="submit" class="chico secundario">✓ Hecho</button>
-                </form>
+                <button type="submit" class="chico secundario" data-rapido name="estado" value="completada"
+                    formaction="<?= e(url('tareas', ['a' => 'estado', 'id' => $t['id'], 'volver' => 'lista'])) ?>">✓ Hecho</button>
             <?php endif; ?></td>
         </tr>
     <?php endforeach; ?>
-    <?php if (!$tareas): ?><tr><td colspan="6" class="vacio">No hay tareas con estos filtros.</td></tr><?php endif; ?>
+    <?php if (!$tareas): ?><tr><td colspan="7" class="vacio">No hay tareas con estos filtros.</td></tr><?php endif; ?>
     </tbody>
 </table>
 <?= paginacion_html($total) ?>
+<?php if ($tareas): ?>
+<section class="panel acciones-masivas" id="acciones-masivas">
+    <h2>Cambiar varias a la vez <small class="tenue" data-contador-masivo>· marque tareas en la lista o elija «todas las del filtro»</small></h2>
+    <div class="fila-formulario formulario">
+        <div><?= selector('m_responsable_id', 'Responsable', opciones_usuarios(), '', '— No cambiar —') ?></div>
+        <div><?= selector('m_estado', 'Estado', ESTADOS_TAREA, '', '— No cambiar —') ?></div>
+        <div><?= selector('m_prioridad', 'Prioridad', PRIORIDADES, '', '— No cambiar —') ?></div>
+        <div><?= campo('m_vencimiento', 'Nuevo vencimiento', '', 'date') ?>
+            <label class="check"><input type="checkbox" name="m_quitar_vencimiento" value="1"> Dejar sin plazo</label></div>
+    </div>
+    <div class="formulario">
+        <label class="check"><input type="radio" name="todos_filtro" value="0" checked> Solo las tareas marcadas en esta página</label>
+        <label class="check"><input type="radio" name="todos_filtro" value="1"> Todas las <?= $total ?> tareas del filtro actual</label>
+    </div>
+    <div class="acciones">
+        <button type="submit" onclick="return confirm('¿Aplicar los cambios a las tareas elegidas?')">Aplicar</button>
+    </div>
+    <p class="tenue">Al pasar a «Completada», las tareas que se repiten crean automáticamente la siguiente, igual que con «✓ Hecho».</p>
+</section>
+<?php endif; ?>
+</form>
 <?php
 layout_fin();

@@ -157,6 +157,40 @@ if ($accion === 'participaciones') {
     return;
 }
 
+/* ---------- Cambio masivo: qué cambiar y a cuáles (se aplica tras calcular los filtros) ---------- */
+if ($accion === 'masivo' && es_post()) {
+    $cambios = [];
+    $mCliente = entrada('m_cliente_id');
+    if ($mCliente === 'ninguno') {
+        $cambios['cliente_id'] = null;
+    } elseif (ctype_digit($mCliente) && q_valor('SELECT id FROM clientes WHERE id = ?', [(int)$mCliente])) {
+        $cambios['cliente_id'] = (int)$mCliente;
+    }
+    if (ctype_digit(entrada('m_responsable_id'))) {
+        $cambios['responsable_id'] = (int)entrada('m_responsable_id');
+    }
+    if (entrada('m_quitar_regimen') === '1') {
+        $cambios['regimen'] = null;
+    } elseif (entrada('m_regimen') !== '') {
+        $cambios['regimen'] = mb_substr(entrada('m_regimen'), 0, 60);
+    }
+    $volver = (string)($_POST['volver'] ?? '');
+    $volver = strpos($volver, 'index.php?r=empresas') === 0 ? $volver : url('empresas');
+    if (entrada('todos_filtro') === '1') {
+        // Reaplicar los mismos filtros de la lista (vienen en la URL de retorno)
+        parse_str((string)parse_url($volver, PHP_URL_QUERY), $filtroLista);
+        $_GET = $filtroLista;
+        $_POST = array_intersect_key($_POST, ['csrf' => 1]);
+        $ids = null;
+    } else {
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? []))));
+    }
+    if (!$cambios || $ids === []) {
+        flash('error', !$cambios ? 'No eligió ningún cambio.' : 'No marcó ningún RUT.');
+        redirigir($volver);
+    }
+}
+
 /* ---------- Filtro común para lista y CSV ---------- */
 $condiciones = [];
 [$filtro, $params] = filtro_busqueda(['e.nombre', 'e.identificacion', 'e.ciudad', 'e.sector', 'e.email', 'c.nombre'], entrada('q'));
@@ -175,6 +209,28 @@ if ($filtroMandato === 'si') {
     $condiciones[] = 'e.representamos = 1';
 }
 $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
+
+if ($accion === 'masivo' && es_post()) {
+    $destino = $ids === null
+        ? array_column(q_todos("SELECT e.id FROM empresas e LEFT JOIN clientes c ON c.id = e.cliente_id $where", $params), 'id')
+        : $ids;
+    $movidos = 0;
+    db()->beginTransaction();
+    foreach ($destino as $eid) {
+        if (array_key_exists('cliente_id', $cambios) && $cambios['cliente_id']
+            && (int)q_valor('SELECT cliente_id FROM empresas WHERE id = ?', [$eid]) !== $cambios['cliente_id']) {
+            // Lo operativo del RUT acompaña al nuevo cliente; facturas y planes de cobro quedan donde se emitieron.
+            foreach (['tareas', 'credenciales', 'documentos', 'actividades'] as $tabla) {
+                q("UPDATE $tabla SET cliente_id = ? WHERE empresa_id = ?", [$cambios['cliente_id'], $eid]);
+            }
+            $movidos++;
+        }
+        actualizar('empresas', (int)$eid, $cambios + ['actualizado_en' => ahora()]);
+    }
+    db()->commit();
+    flash('ok', count($destino) . ' RUT actualizado(s).' . ($movidos ? " $movidos pasaron a otro cliente junto con sus tareas, credenciales, documentos y gestiones." : ''));
+    redirigir($volver);
+}
 
 if ($accion === 'csv') {
     $filas = q_todos(
@@ -496,11 +552,15 @@ layout_inicio('RUT / Contribuyentes', 'empresas');
     <input type="search" name="rut" placeholder="Buscar participaciones de un RUT…" aria-label="RUT del socio">
     <button type="submit" class="secundario">Ver participaciones</button>
 </form>
+<form method="post" action="<?= e(url('empresas', ['a' => 'masivo'])) ?>" id="form-masivo">
+<?= csrf_campo() ?>
+<input type="hidden" name="volver" value="<?= e('index.php?' . http_build_query(['r' => 'empresas'] + $_GET)) ?>">
 <table>
-    <thead><tr><th>Nombre / razón social</th><th>RUT</th><th>Tipo</th><th>Cliente</th><th>Régimen</th><th>Socios</th><th>Responsable</th></tr></thead>
+    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todos"></th><th>Nombre / razón social</th><th>RUT</th><th>Tipo</th><th>Cliente</th><th>Régimen</th><th>Socios</th><th>Responsable</th></tr></thead>
     <tbody>
     <?php foreach ($empresas as $e): ?>
         <tr>
+            <td class="casilla"><input type="checkbox" name="ids[]" value="<?= (int)$e['id'] ?>" aria-label="Marcar <?= e($e['nombre']) ?>"></td>
             <td><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $e['id']])) ?>"><?= e($e['nombre']) ?></a>
                 <?php if ($e['mandato_facturacion'] || $e['representamos']): ?><br><?= badge_mandato($e) ?><?= $e['representamos'] && !$e['mandato_facturacion'] ? '<span class="badge mandato-vigente">Representamos</span>' : '' ?><?php endif; ?></td>
             <td class="nowrap"><?= e($e['identificacion']) ?></td>
@@ -511,9 +571,30 @@ layout_inicio('RUT / Contribuyentes', 'empresas');
             <td><?= e($e['responsable']) ?></td>
         </tr>
     <?php endforeach; ?>
-    <?php if (!$empresas): ?><tr><td colspan="7" class="vacio">No se encontraron RUT.</td></tr><?php endif; ?>
+    <?php if (!$empresas): ?><tr><td colspan="8" class="vacio">No se encontraron RUT.</td></tr><?php endif; ?>
     </tbody>
 </table>
 <?= paginacion_html($total) ?>
+<?php if ($empresas): ?>
+<section class="panel acciones-masivas" id="acciones-masivas">
+    <h2>Cambiar varios a la vez <small class="tenue" data-contador-masivo>· marque RUT en la lista o elija «todos los del filtro»</small></h2>
+    <div class="fila-formulario formulario">
+        <div><?= selector('m_cliente_id', 'Cliente', ['ninguno' => '— Sin cliente —'] + opciones_clientes(false), '', '— No cambiar —') ?></div>
+        <div><?= selector('m_responsable_id', 'Responsable', opciones_usuarios(), '', '— No cambiar —') ?></div>
+        <div><?= campo('m_regimen', 'Régimen tributario', '', 'text', 'list="regimenes-masivo" placeholder="— No cambiar —"') ?>
+            <datalist id="regimenes-masivo"><?php foreach (REGIMENES as $r): ?><option value="<?= e($r) ?>"><?php endforeach; ?></datalist>
+            <label class="check"><input type="checkbox" name="m_quitar_regimen" value="1"> Quitar régimen</label></div>
+    </div>
+    <div class="formulario">
+        <label class="check"><input type="radio" name="todos_filtro" value="0" checked> Solo los RUT marcados en esta página</label>
+        <label class="check"><input type="radio" name="todos_filtro" value="1"> Todos los <?= $total ?> RUT del filtro actual</label>
+    </div>
+    <div class="acciones">
+        <button type="submit" onclick="return confirm('¿Aplicar los cambios a los RUT elegidos?')">Aplicar</button>
+    </div>
+    <p class="tenue">Al cambiar de cliente, el RUT se lleva sus tareas, credenciales, documentos y gestiones; las facturas y planes de cobro ya registrados se quedan en el cliente original.</p>
+</section>
+<?php endif; ?>
+</form>
 <?php
 layout_fin();
