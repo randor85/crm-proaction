@@ -2,9 +2,12 @@
 (function () {
     'use strict';
 
+    /* Comportamientos de formularios: se aplican a la página y a lo que se abre en el panel lateral. */
+    function iniciar(raiz) {
+
     /* Filtra los selectores de empresa (RUT) según el cliente elegido. */
-    var cliente = document.getElementById('f_cliente_id');
-    var empresas = document.querySelectorAll('select[data-filtrar-cliente]');
+    var cliente = raiz.querySelector('#f_cliente_id');
+    var empresas = raiz.querySelectorAll('select[data-filtrar-cliente]');
     function filtrarEmpresas() {
         var c = cliente ? cliente.value : '';
         empresas.forEach(function (sel) {
@@ -20,6 +23,51 @@
     if (cliente && empresas.length) {
         cliente.addEventListener('change', filtrarEmpresas);
         filtrarEmpresas();
+    }
+
+    /* Selector de etiqueta con opción "Otra…": muestra el campo para escribir una nueva. */
+    raiz.querySelectorAll('select[data-etiqueta]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            var campo = sel.parentNode.querySelector('input[type=text]');
+            if (!campo) { return; }
+            campo.hidden = sel.value !== '__otra__';
+            campo.required = !campo.hidden;
+            if (!campo.hidden) { campo.focus(); }
+        });
+    });
+
+    /* Plan de cobro: mostrar en qué meses se factura según periodicidad y mes de inicio. */
+    var formCobro = raiz.querySelector('#form-cobro');
+    if (formCobro) {
+        var nombresMes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+        var cadaMeses = { mensual: 1, trimestral: 3, semestral: 6, anual: 12 };
+        var mostrarCalendario = function () {
+            var cada = cadaMeses[formCobro.periodicidad.value] || 1;
+            var inicio = parseInt(formCobro.mes_inicio.value, 10) || 1;
+            var meses = [];
+            for (var i = 0; i < 12 / cada; i++) { meses.push(((inicio - 1 + i * cada) % 12)); }
+            meses.sort(function (a, b) { return a - b; });
+            raiz.querySelector('#calendario-cobro').textContent = cada === 1
+                ? 'Se factura todos los meses.'
+                : 'Se factura en: ' + meses.map(function (m) { return nombresMes[m]; }).join(', ') + '.';
+            formCobro.mes_inicio.disabled = cada === 1;
+        };
+        formCobro.addEventListener('change', mostrarCalendario);
+        mostrarCalendario();
+    }
+
+    /* Casilla que habilita un campo (p. ej. contraseña manual): data-activa="id del campo". */
+    raiz.querySelectorAll('[data-activa]').forEach(function (casilla) {
+        var campo = raiz.querySelector('#' + casilla.getAttribute('data-activa'));
+        if (!campo) { return; }
+        casilla.addEventListener('change', function () {
+            campo.disabled = !casilla.checked;
+            campo.required = casilla.checked;
+            if (casilla.checked) { campo.focus(); } else { campo.value = ''; }
+        });
+    });
+
+    iniciarFactura(raiz);
     }
 
     /* Botones "Copiar": data-copiar="id del elemento con el texto". */
@@ -42,48 +90,6 @@
         if (!btn) { return; }
         var input = document.getElementById(btn.getAttribute('data-alternar'));
         if (input) { input.type = input.type === 'password' ? 'text' : 'password'; }
-    });
-
-    /* Selector de etiqueta con opción "Otra…": muestra el campo para escribir una nueva. */
-    document.querySelectorAll('select[data-etiqueta]').forEach(function (sel) {
-        sel.addEventListener('change', function () {
-            var campo = sel.parentNode.querySelector('input[type=text]');
-            if (!campo) { return; }
-            campo.hidden = sel.value !== '__otra__';
-            campo.required = !campo.hidden;
-            if (!campo.hidden) { campo.focus(); }
-        });
-    });
-
-    /* Plan de cobro: mostrar en qué meses se factura según periodicidad y mes de inicio. */
-    var formCobro = document.getElementById('form-cobro');
-    if (formCobro) {
-        var nombresMes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-        var cadaMeses = { mensual: 1, trimestral: 3, semestral: 6, anual: 12 };
-        var mostrarCalendario = function () {
-            var cada = cadaMeses[formCobro.periodicidad.value] || 1;
-            var inicio = parseInt(formCobro.mes_inicio.value, 10) || 1;
-            var meses = [];
-            for (var i = 0; i < 12 / cada; i++) { meses.push(((inicio - 1 + i * cada) % 12)); }
-            meses.sort(function (a, b) { return a - b; });
-            document.getElementById('calendario-cobro').textContent = cada === 1
-                ? 'Se factura todos los meses.'
-                : 'Se factura en: ' + meses.map(function (m) { return nombresMes[m]; }).join(', ') + '.';
-            formCobro.mes_inicio.disabled = cada === 1;
-        };
-        formCobro.addEventListener('change', mostrarCalendario);
-        mostrarCalendario();
-    }
-
-    /* Casilla que habilita un campo (p. ej. contraseña manual): data-activa="id del campo". */
-    document.querySelectorAll('[data-activa]').forEach(function (casilla) {
-        var campo = document.getElementById(casilla.getAttribute('data-activa'));
-        if (!campo) { return; }
-        casilla.addEventListener('change', function () {
-            campo.disabled = !casilla.checked;
-            campo.required = casilla.checked;
-            if (casilla.checked) { campo.focus(); } else { campo.value = ''; }
-        });
     });
 
     /* Casilla "marcar todos" de las listas con acciones masivas. */
@@ -145,7 +151,8 @@
     });
 
     /* Formulario de facturación: cálculo en vivo y consulta de la UF. */
-    var form = document.getElementById('form-factura');
+    function iniciarFactura(raiz) {
+    var form = raiz.querySelector('#form-factura');
     if (form) {
         var $ = function (n) { return form.querySelector('[name="' + n + '"]'); };
         // Formato chileno: "1.234.567,89"; también acepta "1234567.89" y "1.000.000".
@@ -167,21 +174,21 @@
             if (tipo === 'factura_afecta') { imp = Math.round(neto * 0.19); total = neto + imp; }
             if (tipo === 'factura_exenta') { etiqueta = 'Exento'; }
             if (tipo === 'boleta_honorarios') { imp = Math.round(neto * retencion); total = neto - imp; etiqueta = 'Retención (' + (retencion * 100).toLocaleString('es-CL') + '%)'; }
-            document.getElementById('calc-neto').textContent = pesos(neto);
-            document.getElementById('calc-imp-etiqueta').textContent = etiqueta;
-            document.getElementById('calc-imp').textContent = pesos(imp);
-            document.getElementById('calc-total').textContent = pesos(total);
-            document.getElementById('calc-total-etiqueta').textContent = tipo === 'boleta_honorarios' ? 'Líquido a pagar' : 'Total';
+            raiz.querySelector('#calc-neto').textContent = pesos(neto);
+            raiz.querySelector('#calc-imp-etiqueta').textContent = etiqueta;
+            raiz.querySelector('#calc-imp').textContent = pesos(imp);
+            raiz.querySelector('#calc-total').textContent = pesos(total);
+            raiz.querySelector('#calc-total-etiqueta').textContent = tipo === 'boleta_honorarios' ? 'Líquido a pagar' : 'Total';
         };
         form.addEventListener('input', calcular);
         form.addEventListener('change', calcular);
         calcular();
 
-        var botonUf = document.getElementById('obtener-uf');
+        var botonUf = raiz.querySelector('#obtener-uf');
         if (botonUf) {
             botonUf.addEventListener('click', function () {
                 var f = $('fecha_emision').value;
-                var aviso = document.getElementById('uf-aviso');
+                var aviso = raiz.querySelector('#uf-aviso');
                 aviso.textContent = 'Consultando…';
                 botonUf.disabled = true;
                 fetch('index.php?r=facturas&a=uf&fecha=' + encodeURIComponent(f), { credentials: 'same-origin' })
@@ -200,4 +207,8 @@
             });
         }
     }
+    }
+
+    iniciar(document);
+    window.CRM = { iniciar: iniciar };
 })();

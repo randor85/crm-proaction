@@ -26,7 +26,7 @@ function layout_inicio(string $titulo, string $rutaActiva = ''): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($titulo) ?> · <?= e($app) ?></title>
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="<?= e(recurso('assets/style.css')) ?>">
     <?php if ($u): ?><meta name="csrf" content="<?= e(csrf_token()) ?>"><?php endif; ?>
 </head>
 <body>
@@ -74,7 +74,8 @@ function layout_fin(): void
         <button type="submit" class="chico">Ver</button>
     </form>
 </template>
-<script src="assets/app.js"></script>
+<script src="<?= e(recurso('assets/app.js')) ?>"></script>
+<?php if (usuario_actual()): ?><script src="<?= e(recurso('assets/panel.js')) ?>"></script><?php endif; ?>
 </body>
 </html>
 <?php
@@ -375,4 +376,11 @@ function badge_tipo_rut(?string $rut): string
         return '';
     }
     return es_rut_persona($rut) ? '<span class="badge">Persona</span>' : '<span class="badge">Empresa</span>';
+}
+
+/** Ruta de un archivo estático con su fecha de modificación, para que el navegador tome la versión nueva tras actualizar. */
+function recurso(string $ruta): string
+{
+    $archivo = dirname(__DIR__) . '/' . $ruta;
+    return $ruta . (is_file($archivo) ? '?v=' . filemtime($archivo) : '');
 }
