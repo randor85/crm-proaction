@@ -14,6 +14,59 @@ function valores_cliente(string $columna): array
         q_todos("SELECT DISTINCT $columna AS v FROM clientes WHERE $columna IS NOT NULL ORDER BY $columna"), 'v');
 }
 
+/**
+ * Convierte un cliente en prospecto: crea una oportunidad en etapa "prospecto" con su empresa,
+ * deja sus RUT, tareas, gestiones, credenciales y documentos ligados a la empresa y lo quita de Clientes.
+ * No convierte clientes con facturas o planes de cobro.
+ * @return string|null motivo si no se pudo convertir
+ */
+function convertir_en_prospecto(int $clienteId): ?string
+{
+    $c = q_uno('SELECT * FROM clientes WHERE id = ?', [$clienteId]);
+    if (!$c) {
+        return 'no existe';
+    }
+    if (q_valor('SELECT COUNT(*) FROM facturas WHERE cliente_id = ?', [$clienteId]) || q_valor('SELECT COUNT(*) FROM cobros WHERE cliente_id = ?', [$clienteId])) {
+        return 'tiene facturación o planes de cobro';
+    }
+    $empresas = array_column(q_todos('SELECT id FROM empresas WHERE cliente_id = ? ORDER BY id', [$clienteId]), 'id');
+    if (!$empresas) {
+        // Sin ficha de RUT: se crea una para no perder sus datos
+        $rutLibre = $c['rut'] && !q_valor('SELECT id FROM empresas WHERE identificacion = ?', [$c['rut']]) ? $c['rut'] : null;
+        $empresas[] = insertar('empresas', [
+            'nombre' => $c['nombre'], 'identificacion' => $rutLibre, 'email' => $c['email'], 'telefono' => $c['telefono'],
+            'direccion' => $c['direccion'], 'responsable_id' => $c['ejecutivo_id'], 'creado_en' => ahora(), 'actualizado_en' => ahora(),
+        ]);
+    }
+    $principal = (int)$empresas[0];
+    $origen = implode(' · ', array_filter([
+        'Convertido desde Clientes el ' . date('d/m/Y'),
+        $c['categoria'] ? 'categoría ' . $c['categoria'] : null,
+        $c['situacion'] ? 'situación ' . $c['situacion'] : null,
+    ]));
+    $oportunidad = insertar('oportunidades', [
+        'titulo'         => mb_substr($c['nombre'], 0, 150),
+        'empresa_id'     => $principal,
+        'contacto_id'    => q_valor('SELECT MIN(id) FROM contactos WHERE empresa_id = ?', [$principal]),
+        'monto'          => 0,
+        'etapa'          => 'prospecto',
+        'probabilidad'   => 10,
+        'responsable_id' => $c['ejecutivo_id'],
+        'notas'          => trim($origen . ".\n" . ($c['notas'] ?? '')),
+        'creado_en'      => ahora(),
+        'actualizado_en' => ahora(),
+    ]);
+    // Todo lo que colgaba del cliente pasa a su empresa (si no tenía una propia)
+    foreach (['tareas', 'credenciales', 'documentos'] as $tabla) {
+        q("UPDATE $tabla SET empresa_id = COALESCE(empresa_id, ?), cliente_id = NULL WHERE cliente_id = ?", [$principal, $clienteId]);
+    }
+    q('UPDATE actividades SET empresa_id = COALESCE(empresa_id, ?), oportunidad_id = COALESCE(oportunidad_id, ?), cliente_id = NULL WHERE cliente_id = ?',
+        [$principal, $oportunidad, $clienteId]);
+    q('UPDATE empresas SET cliente_id = NULL, actualizado_en = ? WHERE cliente_id = ?', [ahora(), $clienteId]);
+    q('DELETE FROM clientes WHERE id = ?', [$clienteId]);
+    return null;
+}
+
 /* ---------- Guardar ---------- */
 if ($accion === 'guardar' && es_post()) {
     [$rut, $errorRut] = rut_entrada('rut');
@@ -93,6 +146,7 @@ if ($accion === 'masivo' && es_post()) {
     if (in_array(entrada('m_activo'), ['0', '1'], true)) {
         $cambios['activo'] = (int)entrada('m_activo');
     }
+    $aProspectos = entrada('m_accion') === 'prospectos';
     $volver = (string)($_POST['volver'] ?? '');
     $volver = strpos($volver, 'index.php?r=clientes') === 0 ? $volver : url('clientes');
     $ids = [];
@@ -105,8 +159,12 @@ if ($accion === 'masivo' && es_post()) {
     } else {
         $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? []))));
     }
-    if (!$cambios || $ids === []) {
-        flash('error', !$cambios ? 'No eligió ningún cambio.' : 'No marcó ningún cliente.');
+    if ($aProspectos && !es_admin()) {
+        flash('error', 'Solo un administrador puede convertir clientes en prospectos.');
+        redirigir($volver);
+    }
+    if ((!$cambios && !$aProspectos) || $ids === []) {
+        flash('error', !$cambios && !$aProspectos ? 'No eligió ningún cambio.' : 'No marcó ningún cliente.');
         redirigir($volver);
     }
 }
@@ -159,6 +217,29 @@ $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
 
 if ($accion === 'masivo' && es_post()) {
     $destino = $ids === null ? array_column(q_todos("SELECT c.id FROM clientes c $where", $params), 'id') : $ids;
+    if ($aProspectos) {
+        $convertidos = 0;
+        $omitidos = [];
+        db()->beginTransaction();
+        try {
+            foreach ($destino as $cid) {
+                $nombre = (string)q_valor('SELECT nombre FROM clientes WHERE id = ?', [$cid]);
+                $motivo = convertir_en_prospecto((int)$cid);
+                $motivo === null ? $convertidos++ : $omitidos[] = "$nombre ($motivo)";
+            }
+            db()->commit();
+        } catch (Throwable $ex) {
+            db()->rollBack();
+            error_log('CRM - error al convertir en prospectos: ' . $ex->getMessage());
+            flash('error', 'No se convirtió nada por un error: ' . $ex->getMessage());
+            redirigir($volver);
+        }
+        flash('ok', "$convertidos cliente(s) convertido(s) en prospectos. Están en Oportunidades, etapa Prospecto.");
+        if ($omitidos) {
+            flash('aviso', count($omitidos) . ' no se convirtieron: ' . implode(' · ', array_slice($omitidos, 0, 15)) . (count($omitidos) > 15 ? ' …' : ''));
+        }
+        redirigir(url('oportunidades', ['etapa' => 'prospecto']));
+    }
     foreach ($destino as $cid) {
         actualizar('clientes', (int)$cid, $cambios + ['actualizado_en' => ahora()]);
     }
@@ -444,7 +525,14 @@ layout_inicio('Clientes', 'clientes');
         <label class="check"><input type="radio" name="todos_filtro" value="0" checked> Solo los clientes marcados en esta página</label>
         <label class="check"><input type="radio" name="todos_filtro" value="1"> Todos los <?= $total ?> clientes del filtro actual</label>
     </div>
-    <div class="acciones"><button type="submit" onclick="return confirm('¿Aplicar los cambios a los clientes elegidos?')">Aplicar</button></div>
+    <div class="acciones">
+        <button type="submit" onclick="return confirm('¿Aplicar los cambios a los clientes elegidos?')">Aplicar</button>
+        <?php if (es_admin()): ?>
+        <button type="submit" name="m_accion" value="prospectos" class="secundario"
+            onclick="return confirm('¿Convertir los clientes elegidos en prospectos? Saldrán de Clientes y quedarán en Oportunidades (etapa Prospecto), con sus RUT, tareas, credenciales y documentos.')">Convertir en prospectos</button>
+        <?php endif; ?>
+    </div>
+    <p class="tenue">«Convertir en prospectos» es para quienes aún no son clientes (p. ej. RUT por consultar): pasan a Oportunidades conservando sus datos. Los que tengan facturas o planes de cobro no se convierten.</p>
 </section>
 <?php endif; ?>
 </form>
