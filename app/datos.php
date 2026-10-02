@@ -30,7 +30,7 @@ function convertir_en_prospecto(int $clienteId): ?string
     $oportunidad = insertar('oportunidades', [
         'titulo'         => mb_substr($c['nombre'], 0, 150),
         'empresa_id'     => $principal,
-        'contacto_id'    => q_valor('SELECT MIN(id) FROM contactos WHERE empresa_id = ?', [$principal]),
+        'contacto_id'    => q_valor('SELECT MIN(contacto_id) FROM contacto_empresas WHERE empresa_id = ?', [$principal]),
         'monto'          => 0,
         'etapa'          => 'prospecto',
         'probabilidad'   => 10,
@@ -115,15 +115,40 @@ function sumar_lineas(?string $texto, array $lineas): ?string
     return $actual ? implode("\n", $actual) : null;
 }
 
-function contacto_en(int $empresaId, string $nombre, string $cargo = 'Contacto'): bool
+/** Vincula un contacto a un RUT con un rol (no duplica). @return bool true si se creó el vínculo */
+function vincular_contacto(int $contactoId, int $empresaId, ?string $rol): bool
 {
-    $nombre = trim($nombre);
-    if ($nombre === '' || q_valor('SELECT id FROM contactos WHERE empresa_id = ? AND LOWER(nombre) = ?', [$empresaId, mb_strtolower($nombre)])) {
+    if (q_valor('SELECT 1 FROM contacto_empresas WHERE contacto_id = ? AND empresa_id = ?', [$contactoId, $empresaId])) {
         return false;
     }
-    insertar('contactos', ['empresa_id' => $empresaId, 'nombre' => mb_convert_case(mb_strtolower($nombre), MB_CASE_TITLE),
-        'cargo' => $cargo, 'creado_en' => ahora(), 'actualizado_en' => ahora()]);
+    insertar('contacto_empresas', ['contacto_id' => $contactoId, 'empresa_id' => $empresaId, 'rol' => nulo_si_vacio(trim((string)$rol))]);
     return true;
+}
+
+/** Busca (o crea) el contacto por nombre y lo vincula al RUT. @return bool true si se creó un vínculo nuevo */
+function contacto_en(int $empresaId, string $nombre, string $rol = 'Contacto'): bool
+{
+    $nombre = trim($nombre);
+    if ($nombre === '') {
+        return false;
+    }
+    $id = q_valor('SELECT MIN(id) FROM contactos WHERE LOWER(nombre) = ?', [mb_strtolower($nombre)]);
+    if (!$id) {
+        $id = insertar('contactos', ['empresa_id' => $empresaId, 'nombre' => mb_convert_case(mb_strtolower($nombre), MB_CASE_TITLE),
+            'cargo' => $rol, 'creado_en' => ahora(), 'actualizado_en' => ahora()]);
+    }
+    return vincular_contacto((int)$id, $empresaId, $rol);
+}
+
+/** Clave para reconocer el mismo contacto escrito distinto: nombre sin tildes ni mayúsculas, o el correo. */
+function clave_contacto(array $c): string
+{
+    $nombre = trim(trim((string)$c['nombre']) . ' ' . trim((string)($c['apellido'] ?? '')));
+    if (filter_var($nombre, FILTER_VALIDATE_EMAIL)) {
+        return 'correo:' . mb_strtolower($nombre);
+    }
+    $plano = strtr(mb_strtolower($nombre), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n']);
+    return 'nombre:' . trim(preg_replace('/[^a-z0-9]+/', ' ', $plano));
 }
 
 function es_rut_persona(?string $rut): bool
@@ -137,6 +162,7 @@ function es_rut_persona(?string $rut): bool
  * ================================================================ */
 
 const REORGANIZACION_ID = 'datos_2026_10_02_reorganizacion';
+const REORGANIZACION2_ID = 'datos_2026_10_02_etapa2';
 
 function reorganizacion_aplicada(): ?string
 {
@@ -319,6 +345,116 @@ function reorganizar_datos(bool $aplicar): array
 
         if ($aplicar) {
             q('INSERT INTO migraciones (id, aplicada_en) VALUES (?, ?)', [REORGANIZACION_ID, ahora()]);
+            $pdo->commit();
+        } else {
+            $pdo->rollBack();
+        }
+    } catch (Throwable $ex) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $ex;
+    }
+    return $inf;
+}
+
+/* ================================================================
+ * Segunda etapa (decisiones del 02-10-2026): categorías de servicio a tareas,
+ * categorías sueltas fuera y contactos únicos vinculados a varios RUT.
+ * ================================================================ */
+
+function reorganizacion2_aplicada(): ?string
+{
+    return q_valor('SELECT aplicada_en FROM migraciones WHERE id = ?', [REORGANIZACION2_ID]);
+}
+
+/** @return array<string, array<int, string>> informe */
+function reorganizar_etapa2(bool $aplicar): array
+{
+    $inf = [];
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        /* 1. Categorías de servicio → tareas sin plazo */
+        foreach (['EMPRESAS PARA DECLARACION' => 'Declaración pendiente', 'EMPRESAS CON IMPUESTOS POR REVISAR' => 'Revisar impuestos'] as $cat => $titulo) {
+            $creadas = 0;
+            $clientes = q_todos('SELECT * FROM clientes WHERE categoria = ?', [$cat]);
+            foreach ($clientes as $c) {
+                if (!q_valor("SELECT id FROM tareas WHERE cliente_id = ? AND titulo = ? AND estado <> 'completada'", [$c['id'], $titulo])) {
+                    insertar('tareas', [
+                        'titulo' => $titulo, 'descripcion' => 'Desde la categoría «' . $cat . '» de la planilla histórica.',
+                        'cliente_id' => $c['id'], 'empresa_id' => q_valor('SELECT MIN(id) FROM empresas WHERE cliente_id = ?', [$c['id']]),
+                        'responsable_id' => $c['ejecutivo_id'], 'estado' => 'pendiente', 'prioridad' => 'normal', 'recurrencia' => 'ninguna',
+                        'creado_por' => (int)usuario_actual()['id'], 'creado_en' => ahora(), 'actualizado_en' => ahora(),
+                    ]);
+                    $creadas++;
+                }
+            }
+            q('UPDATE clientes SET categoria = NULL WHERE categoria = ?', [$cat]);
+            $inf['1. Categorías de servicio → tareas'][] = "«{$titulo}»: $creadas tareas creadas (" . count($clientes) . " clientes con «{$cat}»); se quita la categoría.";
+        }
+
+        /* 2. Categorías sueltas → nota del cliente */
+        foreach (['OTRAS EMPRESAS', 'ALE', 'PERSONALES', 'PRESTAMOS SOLIDARIOS'] as $cat) {
+            $n = 0;
+            foreach (q_todos('SELECT id, notas FROM clientes WHERE categoria = ?', [$cat]) as $c) {
+                q('UPDATE clientes SET notas = ?, categoria = NULL WHERE id = ?', [sumar_lineas($c['notas'], ['Categoría anterior: ' . $cat]), $c['id']]);
+                $n++;
+            }
+            $inf['2. Categorías sueltas'][] = "«{$cat}»: quitada a $n clientes (queda anotada en su nota).";
+        }
+
+        /* 3. Contactos únicos */
+        $grupos = [];
+        foreach (q_todos('SELECT * FROM contactos ORDER BY id') as $c) {
+            $grupos[clave_contacto($c)][] = $c;
+        }
+        $fusionados = 0;
+        $personas = 0;
+        foreach ($grupos as $miembros) {
+            $personas++;
+            if (count($miembros) < 2) {
+                continue;
+            }
+            $principal = array_shift($miembros);
+            $datos = [];
+            foreach (['apellido', 'email', 'telefono', 'movil', 'cargo'] as $campo) {
+                if (!$principal[$campo]) {
+                    foreach ($miembros as $m) {
+                        if ($m[$campo]) {
+                            $datos[$campo] = $m[$campo];
+                            break;
+                        }
+                    }
+                }
+            }
+            $notas = sumar_lineas($principal['notas'], array_merge(...array_map(static fn($m) => lineas_sin_origen($m['notas']), $miembros)) ?: []);
+            $datos['notas'] = $notas;
+            $datos['actualizado_en'] = ahora();
+            actualizar('contactos', (int)$principal['id'], $datos);
+            foreach ($miembros as $m) {
+                foreach (q_todos('SELECT empresa_id, rol FROM contacto_empresas WHERE contacto_id = ?', [$m['id']]) as $v) {
+                    vincular_contacto((int)$principal['id'], (int)$v['empresa_id'], $v['rol']);
+                }
+                q('UPDATE oportunidades SET contacto_id = ? WHERE contacto_id = ?', [$principal['id'], $m['id']]);
+                q('UPDATE actividades SET contacto_id = ? WHERE contacto_id = ?', [$principal['id'], $m['id']]);
+                q('DELETE FROM contactos WHERE id = ?', [$m['id']]);
+                $fusionados++;
+            }
+        }
+        $inf['3. Contactos'][] = "$fusionados fichas duplicadas fusionadas; quedan $personas contactos únicos.";
+        foreach (q_todos('SELECT c.nombre, COUNT(v.empresa_id) n FROM contactos c JOIN contacto_empresas v ON v.contacto_id = c.id
+            GROUP BY c.id, c.nombre HAVING COUNT(v.empresa_id) > 1 ORDER BY n DESC LIMIT 8') as $c) {
+            $inf['3. Contactos'][] = $c['nombre'] . ': vinculado a ' . $c['n'] . ' RUT.';
+        }
+
+        $inf['Resultado'][] = 'Categorías que quedan: ' . (implode(', ', array_column(q_todos(
+            'SELECT categoria, COUNT(*) n FROM clientes WHERE categoria IS NOT NULL GROUP BY categoria ORDER BY n DESC'), 'categoria')) ?: 'ninguna')
+            . ' · tareas abiertas: ' . q_valor("SELECT COUNT(*) FROM tareas WHERE estado <> 'completada'")
+            . ' · contactos: ' . q_valor('SELECT COUNT(*) FROM contactos') . '.';
+
+        if ($aplicar) {
+            q('INSERT INTO migraciones (id, aplicada_en) VALUES (?, ?)', [REORGANIZACION2_ID, ahora()]);
             $pdo->commit();
         } else {
             $pdo->rollBack();

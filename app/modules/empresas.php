@@ -198,9 +198,9 @@ if ($accion === 'form') {
     if ($id && !$e) {
         redirigir(url('empresas'));
     }
-    layout_inicio($id ? 'Editar empresa' : 'Nueva empresa', 'empresas');
+    layout_inicio($id ? 'Editar RUT' : 'Nuevo RUT', 'empresas');
     ?>
-    <h1><?= $id ? 'Editar empresa' : 'Nueva empresa / RUT' ?></h1>
+    <h1><?= $id ? 'Editar RUT / contribuyente' : 'Nuevo RUT / contribuyente' ?></h1>
     <form method="post" action="<?= e(url('empresas', ['a' => 'guardar', 'id' => $id])) ?>" class="formulario rejilla">
         <?= csrf_campo() ?>
         <div><?= campo('nombre', 'Razón social / Nombre *', $e['nombre'] ?? '', 'text', 'required maxlength="150"') ?></div>
@@ -269,7 +269,8 @@ if ($accion === 'ver' && $id) {
     $participa = $e['identificacion'] ? q_todos(
         'SELECT s.porcentaje, e2.id, e2.nombre, e2.identificacion FROM socios s JOIN empresas e2 ON e2.id = s.empresa_id
          WHERE s.socio_empresa_id = ? OR s.rut = ? ORDER BY e2.nombre', [$id, $e['identificacion']]) : [];
-    $contactos = q_todos('SELECT * FROM contactos WHERE empresa_id = ? ORDER BY nombre', [$id]);
+    $contactos = q_todos('SELECT c.*, v.rol FROM contacto_empresas v JOIN contactos c ON c.id = v.contacto_id
+        WHERE v.empresa_id = ? ORDER BY c.nombre', [$id]);
     $oportunidades = q_todos('SELECT * FROM oportunidades WHERE empresa_id = ? ORDER BY actualizado_en DESC', [$id]);
     $tareas = q_todos(
         "SELECT t.*, u.nombre AS responsable FROM tareas t LEFT JOIN usuarios u ON u.id = t.responsable_id
@@ -287,12 +288,12 @@ if ($accion === 'ver' && $id) {
     ?>
     <div class="encabezado">
         <div class="titulo">
-            <h1><?= e($e['nombre']) ?> <?= badge_mandato($e) ?></h1>
+            <h1><?= e($e['nombre']) ?> <?= badge_tipo_rut($e['identificacion']) ?> <?= badge_mandato($e) ?></h1>
             <?php if ($e['cliente']): ?><p class="tenue">Cliente: <?= enlace('clientes', $e['cliente_id'], $e['cliente']) ?></p><?php endif; ?>
         </div>
         <div>
             <a class="boton" href="<?= e(url('empresas', ['a' => 'form', 'id' => $id])) ?>">Editar</a>
-            <?php if (puede_eliminar($e)) echo boton_post(url('empresas', ['a' => 'eliminar', 'id' => $id]), 'Eliminar', 'peligro', '¿Eliminar la empresa? Se borrarán sus socios y credenciales; tareas, contactos y documentos se conservarán sin empresa.'); ?>
+            <?php if (puede_eliminar($e)) echo boton_post(url('empresas', ['a' => 'eliminar', 'id' => $id]), 'Eliminar', 'peligro', '¿Eliminar este RUT? Se borrarán sus socios y credenciales; tareas, contactos y documentos se conservarán sin RUT.'); ?>
         </div>
     </div>
     <div class="columnas">
@@ -364,18 +365,26 @@ if ($accion === 'ver' && $id) {
                 </ul>
             <?php endif; ?>
         </section>
-        <section class="panel">
-            <div class="encabezado"><h2>Contactos</h2><a href="<?= e(url('contactos', ['a' => 'form', 'empresa_id' => $id])) ?>">+ Agregar</a></div>
+        <section class="panel" id="contactos">
+            <div class="encabezado"><h2>Contactos</h2><a href="<?= e(url('contactos', ['a' => 'form', 'empresa_id' => $id])) ?>">+ Nuevo contacto</a></div>
             <?php if (!$contactos): ?><p class="vacio">Sin contactos.</p><?php else: ?>
             <table><tbody>
             <?php foreach ($contactos as $c): ?>
                 <tr>
-                    <td><a href="<?= e(url('contactos', ['a' => 'ver', 'id' => $c['id']])) ?>"><?= e($c['nombre'] . ' ' . $c['apellido']) ?></a><br><small class="tenue"><?= e($c['cargo']) ?></small></td>
+                    <td><a href="<?= e(url('contactos', ['a' => 'ver', 'id' => $c['id']])) ?>"><?= e($c['nombre'] . ' ' . $c['apellido']) ?></a><br><small class="tenue"><?= e($c['rol'] ?: $c['cargo']) ?></small></td>
                     <td><?= e($c['email']) ?><br><small><?= e($c['telefono'] ?: $c['movil']) ?></small></td>
+                    <td class="derecha"><?= boton_post(url('contactos', ['a' => 'desvincular', 'id' => $c['id'], 'empresa_id' => $id, 'volver' => 'empresa']), 'Quitar', 'secundario', '¿Quitar este contacto del RUT? El contacto se conserva.') ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody></table>
             <?php endif; ?>
+            <form method="post" action="<?= e(url('contactos', ['a' => 'vincular', 'volver' => 'empresa'])) ?>" class="formulario fila-formulario">
+                <?= csrf_campo() ?>
+                <input type="hidden" name="empresa_id" value="<?= (int)$id ?>">
+                <div><?= selector('contacto_id', 'Vincular contacto existente', opciones_contactos(), '') ?></div>
+                <div><?= campo('rol', 'Rol', '', 'text', 'maxlength="60" placeholder="Contador, gerente…"') ?></div>
+                <div><button type="submit" class="secundario">Vincular</button></div>
+            </form>
         </section>
     </div>
 
@@ -475,10 +484,10 @@ $empresas = q_todos(
     $params
 );
 
-layout_inicio('Empresas', 'empresas');
+layout_inicio('RUT / Contribuyentes', 'empresas');
 ?>
-<h1>Empresas / RUT</h1>
-<?php barra_lista('empresas', '+ Nueva empresa', true, [
+<h1>RUT / Contribuyentes</h1>
+<?php barra_lista('empresas', '+ Nuevo RUT', true, [
     selector('cliente_id', '', opciones_clientes(false), $filtroCliente ?? '', 'Todos los clientes', 'aria-label="Cliente"'),
     selector('mandato', '', ['si' => 'Con mandato de facturación', 'representamos' => 'Las que representamos'], $filtroMandato, 'Todas', 'aria-label="Mandato"'),
 ]); ?>
@@ -488,20 +497,21 @@ layout_inicio('Empresas', 'empresas');
     <button type="submit" class="secundario">Ver participaciones</button>
 </form>
 <table>
-    <thead><tr><th>Razón social</th><th>RUT</th><th>Cliente</th><th>Régimen</th><th>Socios</th><th>Responsable</th></tr></thead>
+    <thead><tr><th>Nombre / razón social</th><th>RUT</th><th>Tipo</th><th>Cliente</th><th>Régimen</th><th>Socios</th><th>Responsable</th></tr></thead>
     <tbody>
     <?php foreach ($empresas as $e): ?>
         <tr>
             <td><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $e['id']])) ?>"><?= e($e['nombre']) ?></a>
                 <?php if ($e['mandato_facturacion'] || $e['representamos']): ?><br><?= badge_mandato($e) ?><?= $e['representamos'] && !$e['mandato_facturacion'] ? '<span class="badge mandato-vigente">Representamos</span>' : '' ?><?php endif; ?></td>
             <td class="nowrap"><?= e($e['identificacion']) ?></td>
+            <td><?= badge_tipo_rut($e['identificacion']) ?></td>
             <td><?= enlace('clientes', $e['cliente_id'], $e['cliente']) ?></td>
             <td><?= e($e['regimen']) ?></td>
             <td><?= (int)$e['n_socios'] ?></td>
             <td><?= e($e['responsable']) ?></td>
         </tr>
     <?php endforeach; ?>
-    <?php if (!$empresas): ?><tr><td colspan="6" class="vacio">No se encontraron empresas.</td></tr><?php endif; ?>
+    <?php if (!$empresas): ?><tr><td colspan="7" class="vacio">No se encontraron RUT.</td></tr><?php endif; ?>
     </tbody>
 </table>
 <?= paginacion_html($total) ?>

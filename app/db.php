@@ -167,13 +167,15 @@ function opciones_tareas_abiertas(?int $clienteId = null): array
 function opciones_contactos(): array
 {
     $filas = q_todos(
-        'SELECT c.id, c.nombre, c.apellido, e.nombre AS empresa
-         FROM contactos c LEFT JOIN empresas e ON e.id = c.empresa_id
+        'SELECT c.id, c.nombre, c.apellido, c.email, MIN(e.nombre) AS empresa, COUNT(e.id) AS n
+         FROM contactos c LEFT JOIN contacto_empresas v ON v.contacto_id = c.id LEFT JOIN empresas e ON e.id = v.empresa_id
+         GROUP BY c.id, c.nombre, c.apellido, c.email
          ORDER BY c.nombre, c.apellido'
     );
     $op = [];
     foreach ($filas as $f) {
-        $op[$f['id']] = trim($f['nombre'] . ' ' . $f['apellido']) . ($f['empresa'] ? ' (' . $f['empresa'] . ')' : '');
+        $donde = $f['empresa'] ? $f['empresa'] . ($f['n'] > 1 ? ' y ' . ($f['n'] - 1) . ' más' : '') : $f['email'];
+        $op[$f['id']] = trim($f['nombre'] . ' ' . $f['apellido']) . ($donde ? ' (' . $donde . ')' : '');
     }
     return $op;
 }

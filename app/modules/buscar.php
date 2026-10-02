@@ -44,8 +44,9 @@ if (mb_strlen($q) >= 2) {
          ORDER BY s.nombre, e.nombre LIMIT " . MAX_POR_GRUPO, $p(['t2' => $texto]));
 
     $resultados['contactos'] = q_todos(
-        "SELECT ct.id, ct.nombre, ct.apellido, ct.cargo, ct.email, ct.telefono, ct.movil, e.nombre AS empresa, e.id AS empresa_id
-         FROM contactos ct LEFT JOIN empresas e ON e.id = ct.empresa_id
+        "SELECT ct.id, ct.nombre, ct.apellido, ct.cargo, ct.email, ct.telefono, ct.movil,
+            (SELECT MIN(e.nombre) FROM contacto_empresas v JOIN empresas e ON e.id = v.empresa_id WHERE v.contacto_id = ct.id) AS empresa
+         FROM contactos ct
          WHERE ct.nombre LIKE :t OR ct.apellido LIKE :t2 OR ct.email LIKE :t3 OR "
             . (db_driver() === 'sqlite' ? "(ct.nombre || ' ' || COALESCE(ct.apellido, ''))" : "CONCAT(ct.nombre, ' ', COALESCE(ct.apellido, ''))") . " LIKE :t4
          ORDER BY ct.nombre LIMIT " . MAX_POR_GRUPO, ['t' => $texto, 't2' => $texto, 't3' => $texto, 't4' => $texto]);
@@ -148,7 +149,7 @@ layout_inicio($q !== '' ? "Buscar: $q" : 'Buscar', 'buscar');
 
 <?php if (!empty($resultados['empresas'])): ?>
 <section class="panel">
-    <h2>Empresas / RUT (<?= count($resultados['empresas']) ?>)</h2>
+    <h2>RUT / Contribuyentes (<?= count($resultados['empresas']) ?>)</h2>
     <table><tbody>
     <?php foreach ($resultados['empresas'] as $em): ?>
         <tr><td><?= enlace('empresas', $em['id'], $em['nombre']) ?>

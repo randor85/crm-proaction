@@ -6,7 +6,6 @@ $id = entrada_int('id');
 /* ---------- Guardar ---------- */
 if ($accion === 'guardar' && es_post()) {
     $datos = [
-        'empresa_id'     => entrada_int('empresa_id'),
         'nombre'         => entrada('nombre'),
         'apellido'       => nulo_si_vacio(entrada('apellido')),
         'cargo'          => nulo_si_vacio(entrada('cargo')),
@@ -27,9 +26,39 @@ if ($accion === 'guardar' && es_post()) {
     } else {
         $datos['creado_en'] = ahora();
         $id = insertar('contactos', $datos);
+        if ($empresaInicial = entrada_int('empresa_id')) {
+            vincular_contacto($id, $empresaInicial, $datos['cargo']);
+        }
         flash('ok', 'Contacto creado.');
     }
     redirigir(url('contactos', ['a' => 'ver', 'id' => $id]));
+}
+
+/* ---------- Vínculos con RUT ---------- */
+if ($accion === 'vincular' && es_post()) {
+    $contactoId = entrada_int('contacto_id') ?: $id;
+    $empresaId = entrada_int('empresa_id');
+    $volver = entrada('volver') === 'empresa' && $empresaId
+        ? url('empresas', ['a' => 'ver', 'id' => $empresaId]) . '#contactos'
+        : url('contactos', ['a' => 'ver', 'id' => $contactoId]);
+    if (!$contactoId || !$empresaId || !q_valor('SELECT id FROM contactos WHERE id = ?', [$contactoId])) {
+        flash('error', 'Elija el contacto y el RUT.');
+    } elseif (vincular_contacto($contactoId, $empresaId, entrada('rol'))) {
+        flash('ok', 'Contacto vinculado al RUT.');
+    } else {
+        q('UPDATE contacto_empresas SET rol = ? WHERE contacto_id = ? AND empresa_id = ?', [nulo_si_vacio(entrada('rol')), $contactoId, $empresaId]);
+        flash('ok', 'El contacto ya estaba vinculado; se actualizó su rol.');
+    }
+    redirigir($volver);
+}
+
+if ($accion === 'desvincular' && es_post() && $id) {
+    $empresaId = entrada_int('empresa_id');
+    q('DELETE FROM contacto_empresas WHERE contacto_id = ? AND empresa_id = ?', [$id, $empresaId]);
+    flash('ok', 'Vínculo quitado (el contacto se conserva).');
+    redirigir(entrada('volver') === 'empresa'
+        ? url('empresas', ['a' => 'ver', 'id' => $empresaId]) . '#contactos'
+        : url('contactos', ['a' => 'ver', 'id' => $id]));
 }
 
 /* ---------- Eliminar ---------- */
@@ -46,28 +75,49 @@ if ($accion === 'eliminar' && es_post() && $id) {
 
 /* ---------- Filtro común para lista y CSV ---------- */
 $busqueda = entrada('q');
-[$where, $params] = filtro_busqueda(['c.nombre', 'c.apellido', 'c.email', 'c.cargo', 'e.nombre'], $busqueda);
-$where = $where ? "WHERE $where" : '';
+[$where, $params] = filtro_busqueda(['c.nombre', 'c.apellido', 'c.email', 'c.cargo'], $busqueda);
+if ($where) {
+    $where = 'WHERE (' . $where . ' OR EXISTS (SELECT 1 FROM contacto_empresas v JOIN empresas e ON e.id = v.empresa_id
+        WHERE v.contacto_id = c.id AND (e.nombre LIKE :qe OR e.identificacion LIKE :qr)))';
+    $params += ['qe' => '%' . $busqueda . '%', 'qr' => '%' . $busqueda . '%'];
+}
+
+/** Vínculos con RUT de varios contactos, agrupados por contacto. */
+$vinculosDe = static function (array $ids): array {
+    if (!$ids) {
+        return [];
+    }
+    $marcas = implode(',', array_fill(0, count($ids), '?'));
+    $porContacto = [];
+    foreach (q_todos("SELECT v.contacto_id, v.rol, e.id AS empresa_id, e.nombre, e.identificacion, e.cliente_id
+        FROM contacto_empresas v JOIN empresas e ON e.id = v.empresa_id
+        WHERE v.contacto_id IN ($marcas) ORDER BY e.nombre", array_values($ids)) as $v) {
+        $porContacto[$v['contacto_id']][] = $v;
+    }
+    return $porContacto;
+};
 
 if ($accion === 'csv') {
     $filas = q_todos(
-        "SELECT c.nombre, c.apellido, c.cargo, e.nombre AS empresa, c.email, c.telefono, c.movil, u.nombre AS responsable
+        "SELECT c.id, c.nombre, c.apellido, c.cargo, c.email, c.telefono, c.movil, u.nombre AS responsable
          FROM contactos c
-         LEFT JOIN empresas e ON e.id = c.empresa_id
          LEFT JOIN usuarios u ON u.id = c.responsable_id
          $where ORDER BY c.nombre, c.apellido",
         $params
     );
+    $vinculos = $vinculosDe(array_column($filas, 'id'));
     exportar_csv('contactos_' . date('Ymd') . '.csv',
-        ['Nombre', 'Apellido', 'Cargo', 'Empresa', 'Correo', 'Teléfono', 'Móvil', 'Responsable'],
-        array_map('array_values', $filas));
+        ['Nombre', 'Apellido', 'Cargo', 'RUT / Contribuyentes', 'Correo', 'Teléfono', 'Móvil', 'Responsable'],
+        array_map(static fn($f) => [$f['nombre'], $f['apellido'], $f['cargo'],
+            implode('; ', array_map(static fn($v) => $v['nombre'] . ($v['rol'] ? ' (' . $v['rol'] . ')' : ''), $vinculos[$f['id']] ?? [])),
+            $f['email'], $f['telefono'], $f['movil'], $f['responsable']], $filas));
 }
 
 /* ---------- Formulario ---------- */
 if ($accion === 'form') {
     $c = $id
         ? q_uno('SELECT * FROM contactos WHERE id = ?', [$id])
-        : ['empresa_id' => entrada_int('empresa_id'), 'responsable_id' => usuario_actual()['id']];
+        : ['responsable_id' => usuario_actual()['id']];
     if ($id && !$c) {
         redirigir(url('contactos'));
     }
@@ -78,8 +128,10 @@ if ($accion === 'form') {
         <?= csrf_campo() ?>
         <div><?= campo('nombre', 'Nombre *', $c['nombre'] ?? '', 'text', 'required maxlength="100"') ?></div>
         <div><?= campo('apellido', 'Apellido', $c['apellido'] ?? '') ?></div>
-        <div><?= selector('empresa_id', 'Empresa', opciones_empresas(), $c['empresa_id'] ?? '') ?></div>
-        <div><?= campo('cargo', 'Cargo', $c['cargo'] ?? '') ?></div>
+        <?php if (!$id): ?>
+        <div><?= selector('empresa_id', 'Vincular al RUT', opciones_empresas(), entrada_int('empresa_id') ?: '') ?></div>
+        <?php endif; ?>
+        <div><?= campo('cargo', $id ? 'Cargo habitual' : 'Cargo / rol', $c['cargo'] ?? '') ?></div>
         <div><?= campo('email', 'Correo', $c['email'] ?? '', 'email') ?></div>
         <div><?= campo('telefono', 'Teléfono', $c['telefono'] ?? '', 'tel') ?></div>
         <div><?= campo('movil', 'Móvil', $c['movil'] ?? '', 'tel') ?></div>
@@ -98,14 +150,15 @@ if ($accion === 'form') {
 /* ---------- Ficha ---------- */
 if ($accion === 'ver' && $id) {
     $c = q_uno(
-        'SELECT c.*, e.nombre AS empresa, u.nombre AS responsable
+        'SELECT c.*, u.nombre AS responsable
          FROM contactos c
-         LEFT JOIN empresas e ON e.id = c.empresa_id
          LEFT JOIN usuarios u ON u.id = c.responsable_id
          WHERE c.id = ?', [$id]);
     if (!$c) {
         redirigir(url('contactos'));
     }
+    $ruts = $vinculosDe([$id])[$id] ?? [];
+    $empresaPrincipal = $ruts[0]['empresa_id'] ?? null;
     $oportunidades = q_todos('SELECT * FROM oportunidades WHERE contacto_id = ? ORDER BY actualizado_en DESC', [$id]);
     $actividades = q_todos(
         'SELECT a.*, u.nombre AS usuario FROM actividades a LEFT JOIN usuarios u ON u.id = a.usuario_id
@@ -125,7 +178,6 @@ if ($accion === 'ver' && $id) {
         <section class="panel">
             <h2>Datos</h2>
             <dl class="ficha">
-                <dt>Empresa</dt><dd><?php if ($c['empresa_id']): ?><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $c['empresa_id']])) ?>"><?= e($c['empresa']) ?></a><?php endif; ?></dd>
                 <dt>Cargo</dt><dd><?= e($c['cargo']) ?></dd>
                 <dt>Correo</dt><dd><?php if ($c['email']): ?><a href="mailto:<?= e($c['email']) ?>"><?= e($c['email']) ?></a><?php endif; ?></dd>
                 <dt>Teléfono</dt><dd><?= e($c['telefono']) ?></dd>
@@ -134,8 +186,29 @@ if ($accion === 'ver' && $id) {
             </dl>
             <?php if ($c['notas']): ?><p class="notas"><?= nl2br(e($c['notas'])) ?></p><?php endif; ?>
         </section>
+        <section class="panel" id="ruts">
+            <h2>RUT / Contribuyentes</h2>
+            <?php if (!$ruts): ?><p class="vacio">No está vinculado a ningún RUT.</p><?php else: ?>
+            <table><tbody>
+            <?php foreach ($ruts as $v): ?>
+                <tr>
+                    <td><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $v['empresa_id']])) ?>"><?= e($v['nombre']) ?></a>
+                        <br><small class="tenue"><?= e($v['identificacion']) ?></small></td>
+                    <td><?= e($v['rol']) ?></td>
+                    <td class="derecha"><?= boton_post(url('contactos', ['a' => 'desvincular', 'id' => $id, 'empresa_id' => $v['empresa_id']]), 'Quitar', 'secundario', '¿Quitar el vínculo con este RUT? El contacto se conserva.') ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody></table>
+            <?php endif; ?>
+            <form method="post" action="<?= e(url('contactos', ['a' => 'vincular', 'id' => $id])) ?>" class="formulario fila-formulario">
+                <?= csrf_campo() ?>
+                <div><?= selector('empresa_id', 'Vincular a otro RUT', opciones_empresas(), '') ?></div>
+                <div><?= campo('rol', 'Rol', $c['cargo'] ?? '', 'text', 'maxlength="60" placeholder="Contador, gerente, socio…"') ?></div>
+                <div><button type="submit" class="secundario">Vincular</button></div>
+            </form>
+        </section>
         <section class="panel">
-            <div class="encabezado"><h2>Oportunidades</h2><a href="<?= e(url('oportunidades', ['a' => 'form', 'contacto_id' => $id, 'empresa_id' => $c['empresa_id']])) ?>">+ Agregar</a></div>
+            <div class="encabezado"><h2>Oportunidades</h2><a href="<?= e(url('oportunidades', ['a' => 'form', 'contacto_id' => $id, 'empresa_id' => $empresaPrincipal])) ?>">+ Agregar</a></div>
             <?php if (!$oportunidades): ?><p class="vacio">Sin oportunidades.</p><?php else: ?>
             <table><tbody>
             <?php foreach ($oportunidades as $o): ?>
@@ -150,32 +223,32 @@ if ($accion === 'ver' && $id) {
         </section>
     </div>
     <?php
-    historial_actividades($actividades, ['contacto_id' => $id, 'empresa_id' => $c['empresa_id']]);
+    historial_actividades($actividades, ['contacto_id' => $id, 'empresa_id' => $empresaPrincipal]);
     layout_fin();
     return;
 }
 
 /* ---------- Lista ---------- */
 [$limite, $desde] = paginacion_limites();
-$total = (int)q_valor("SELECT COUNT(*) FROM contactos c LEFT JOIN empresas e ON e.id = c.empresa_id $where", $params);
+$total = (int)q_valor("SELECT COUNT(*) FROM contactos c $where", $params);
 $contactos = q_todos(
-    "SELECT c.*, e.nombre AS empresa
-     FROM contactos c LEFT JOIN empresas e ON e.id = c.empresa_id
+    "SELECT c.* FROM contactos c
      $where ORDER BY c.nombre, c.apellido LIMIT $limite OFFSET $desde",
     $params
 );
+$vinculos = $vinculosDe(array_column($contactos, 'id'));
 
 layout_inicio('Contactos', 'contactos');
 ?>
 <h1>Contactos</h1>
 <?php barra_lista('contactos', '+ Nuevo contacto', true); ?>
 <table>
-    <thead><tr><th>Nombre</th><th>Empresa</th><th>Cargo</th><th>Correo</th><th>Teléfono</th></tr></thead>
+    <thead><tr><th>Nombre</th><th>RUT / Contribuyentes</th><th>Cargo</th><th>Correo</th><th>Teléfono</th></tr></thead>
     <tbody>
     <?php foreach ($contactos as $c): ?>
         <tr>
             <td><a href="<?= e(url('contactos', ['a' => 'ver', 'id' => $c['id']])) ?>"><?= e(trim($c['nombre'] . ' ' . $c['apellido'])) ?></a></td>
-            <td><?= e($c['empresa']) ?></td>
+            <td><?php foreach ($vinculos[$c['id']] ?? [] as $i => $v): ?><?= $i ? '<br>' : '' ?><a href="<?= e(url('empresas', ['a' => 'ver', 'id' => $v['empresa_id']])) ?>"><?= e($v['nombre']) ?></a><?php if ($v['rol']): ?> <small class="tenue"><?= e($v['rol']) ?></small><?php endif; ?><?php endforeach; ?></td>
             <td><?= e($c['cargo']) ?></td>
             <td><?= e($c['email']) ?></td>
             <td><?= e($c['telefono'] ?: $c['movil']) ?></td>

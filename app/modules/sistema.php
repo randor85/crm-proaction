@@ -26,23 +26,34 @@ if ($accion === 'indicador' && es_post()) {
     redirigir(url('sistema'));
 }
 
-/* ---------- Reorganización única de la planilla histórica ---------- */
-if (in_array($accion, ['reorganizar_vista', 'reorganizar_aplicar'], true) && es_post()) {
-    $aplicar = $accion === 'reorganizar_aplicar';
-    if (reorganizacion_aplicada()) {
-        flash('error', 'La reorganización ya se aplicó el ' . fecha(reorganizacion_aplicada(), true) . '.');
-        redirigir(url('sistema') . '#reorganizacion');
+/* ---------- Reorganizaciones únicas de la planilla histórica ---------- */
+$reorganizaciones = [
+    'reorganizar' => ['aplicada' => 'reorganizacion_aplicada', 'correr' => 'reorganizar_datos', 'ancla' => 'reorganizacion'],
+    'etapa2'      => ['aplicada' => 'reorganizacion2_aplicada', 'correr' => 'reorganizar_etapa2', 'ancla' => 'etapa2'],
+];
+[$tipoReorg] = explode('_', $accion) + [''];
+if (isset($reorganizaciones[$tipoReorg]) && in_array($accion, [$tipoReorg . '_vista', $tipoReorg . '_aplicar'], true) && es_post()) {
+    $reorg = $reorganizaciones[$tipoReorg];
+    $volverReorg = url('sistema') . '#' . $reorg['ancla'];
+    $aplicar = $accion === $tipoReorg . '_aplicar';
+    if ($fechaYa = $reorg['aplicada']()) {
+        flash('error', 'La reorganización ya se aplicó el ' . fecha($fechaYa, true) . '.');
+        redirigir($volverReorg);
+    }
+    if ($tipoReorg === 'etapa2' && !reorganizacion_aplicada()) {
+        flash('error', 'Aplique primero la reorganización inicial.');
+        redirigir($volverReorg);
     }
     if ($aplicar && entrada('respaldo') !== '1') {
         flash('error', 'Confirme que respaldó la base de datos antes de aplicar.');
-        redirigir(url('sistema') . '#reorganizacion');
+        redirigir($volverReorg);
     }
     try {
-        $informe = reorganizar_datos($aplicar);
+        $informe = $reorg['correr']($aplicar);
     } catch (Throwable $ex) {
         error_log('CRM - error en la reorganización: ' . $ex->getMessage());
         flash('error', 'No se cambió nada: la reorganización falló (' . $ex->getMessage() . ').');
-        redirigir(url('sistema') . '#reorganizacion');
+        redirigir($volverReorg);
     }
     layout_inicio($aplicar ? 'Reorganización aplicada' : 'Vista previa de la reorganización', 'sistema');
     ?>
@@ -59,7 +70,7 @@ if (in_array($accion, ['reorganizar_vista', 'reorganizar_aplicar'], true) && es_
     <?php if (!$aplicar): ?>
     <section class="panel">
         <h2>¿Aplicar?</h2>
-        <form method="post" action="<?= e(url('sistema', ['a' => 'reorganizar_aplicar'])) ?>" class="formulario">
+        <form method="post" action="<?= e(url('sistema', ['a' => $tipoReorg . '_aplicar'])) ?>" class="formulario">
             <?= csrf_campo() ?>
             <label class="check"><input type="checkbox" name="respaldo" value="1" required> Respaldé la base de datos (cPanel → Copias de seguridad → base proactio_crm)</label>
             <div class="acciones">
@@ -120,6 +131,20 @@ layout_inicio('Sistema', 'sistema');
         <?= boton_post(url('sistema', ['a' => 'reorganizar_vista']), 'Ver vista previa', 'secundario') ?>
     <?php endif; ?>
 </section>
+
+<?php if (reorganizacion_aplicada()): ?>
+<section class="panel" id="etapa2">
+    <h2>Reorganización, segunda etapa</h2>
+    <?php if ($fechaEtapa2 = reorganizacion2_aplicada()): ?>
+        <p>✅ Aplicada el <?= e(fecha($fechaEtapa2, true)) ?>.</p>
+    <?php else: ?>
+        <p>Convierte las categorías «Empresas para declaración» e «Impuestos por revisar» en tareas sin plazo,
+            quita las categorías Otras empresas, ALE, Personales y Préstamos solidarios (queda anotada en la nota del cliente)
+            y une los contactos repetidos en una sola ficha por persona, vinculada a todos sus RUT.</p>
+        <?= boton_post(url('sistema', ['a' => 'etapa2_vista']), 'Ver vista previa', 'secundario') ?>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
 
 <section class="panel">
     <h2>Llave de cifrado de credenciales</h2>

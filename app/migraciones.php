@@ -263,6 +263,22 @@ const MIGRACIONES = [
         {FIN}',
         'CREATE INDEX idx_cliente_ejecutivos_usuario ON cliente_ejecutivos (usuario_id)',
     ],
+
+    // Contactos como ficha única por persona, vinculada a varios RUT con un rol en cada uno
+    '2026_10_02_contactos_por_rut' => [
+        'CREATE TABLE contacto_empresas (
+            contacto_id {INT} NOT NULL,
+            empresa_id  {INT} NOT NULL,
+            rol         VARCHAR(60) NULL,
+            PRIMARY KEY (contacto_id, empresa_id),
+            FOREIGN KEY (contacto_id) REFERENCES contactos(id) ON DELETE CASCADE,
+            FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+        {FIN}',
+        'CREATE INDEX idx_contacto_empresas_empresa ON contacto_empresas (empresa_id)',
+        // Cada contacto existente queda vinculado al RUT que tenía, con su cargo como rol
+        'INSERT INTO contacto_empresas (contacto_id, empresa_id, rol)
+         SELECT id, empresa_id, cargo FROM contactos WHERE empresa_id IS NOT NULL',
+    ],
 ];
 
 function migracion_sql(string $sql): string
@@ -307,8 +323,9 @@ function migraciones_aplicar(): array
 function migraciones_automaticas(): void
 {
     try {
-        $hechas = (int)q_valor('SELECT COUNT(*) FROM migraciones');
-        if ($hechas >= count(MIGRACIONES)) {
+        // Se compara por identificador: la tabla también registra herramientas de datos (p. ej. reorganizaciones).
+        $hechas = array_column(q_todos('SELECT id FROM migraciones'), 'id');
+        if (!array_diff(array_keys(MIGRACIONES), $hechas)) {
             return;
         }
     } catch (PDOException $ex) {

@@ -4,7 +4,7 @@ declare(strict_types=1);
 const MENU = [
     'dashboard'     => 'Inicio',
     'clientes'      => 'Clientes',
-    'empresas'      => 'Empresas',
+    'empresas'      => 'RUT / Contribuyentes',
     'tareas'        => 'Tareas',
     'actividades'   => 'Gestiones',
     'facturas'      => 'Facturación',
@@ -366,4 +366,13 @@ function badge_mandato(array $e): string
 {
     [$clave, $texto] = estado_mandato($e);
     return $clave === 'sin' ? '' : '<span class="badge mandato-' . $clave . '">' . e($texto) . '</span>';
+}
+
+/** Persona natural o empresa según el RUT (bajo 50 millones = persona). */
+function badge_tipo_rut(?string $rut): string
+{
+    if (!$rut) {
+        return '';
+    }
+    return es_rut_persona($rut) ? '<span class="badge">Persona</span>' : '<span class="badge">Empresa</span>';
 }

@@ -259,7 +259,7 @@ if ($accion === 'form') {
         <div class="completo">
             <label class="check"><input type="checkbox" name="activo" value="1" <?= $c['activo'] ? 'checked' : '' ?>> Cliente activo (desmarcar = ex-cliente)</label>
             <?php if (!$id): ?>
-            <label class="check"><input type="checkbox" name="crear_empresa" value="1" checked> Crear también la ficha de este RUT en Empresas</label>
+            <label class="check"><input type="checkbox" name="crear_empresa" value="1" checked> Crear también la ficha de este RUT en RUT / Contribuyentes</label>
             <?php endif; ?>
         </div>
         <div class="completo acciones">
@@ -299,8 +299,9 @@ if ($accion === 'ver' && $id) {
         'SELECT k.*, e.nombre AS empresa FROM credenciales k LEFT JOIN empresas e ON e.id = k.empresa_id
          WHERE k.cliente_id = ? ORDER BY k.institucion', [$id]) : [];
     $contactos = q_todos(
-        'SELECT ct.*, e.nombre AS empresa FROM contactos ct JOIN empresas e ON e.id = ct.empresa_id
-         WHERE e.cliente_id = ? ORDER BY ct.nombre', [$id]);
+        'SELECT ct.id, ct.nombre, ct.apellido, v.rol AS cargo, e.nombre AS empresa
+         FROM contacto_empresas v JOIN contactos ct ON ct.id = v.contacto_id JOIN empresas e ON e.id = v.empresa_id
+         WHERE e.cliente_id = ? ORDER BY ct.nombre, e.nombre', [$id]);
 
     layout_inicio($c['nombre'], 'clientes');
     ?>
@@ -334,7 +335,7 @@ if ($accion === 'ver' && $id) {
             <?php if ($c['notas']): ?><p class="notas"><?= nl2br(e($c['notas'])) ?></p><?php endif; ?>
         </section>
         <section class="panel">
-            <div class="encabezado"><h2>RUT / Empresas (<?= count($empresas) ?>)</h2>
+            <div class="encabezado"><h2>RUT / Contribuyentes (<?= count($empresas) ?>)</h2>
                 <a href="<?= e(url('empresas', ['a' => 'form', 'cliente_id' => $id])) ?>">+ Agregar RUT</a></div>
             <?php if (!$empresas): ?><p class="vacio">Este cliente aún no tiene RUT asociados.</p><?php else: ?>
             <table><tbody>
