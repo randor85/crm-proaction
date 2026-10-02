@@ -94,9 +94,23 @@
 
     /* Casilla "marcar todos" de las listas con acciones masivas. */
     document.addEventListener('change', function (ev) {
-        if (!ev.target.matches('[data-marcar-todos]')) { return; }
-        ev.target.closest('table').querySelectorAll('tbody input[type=checkbox]').forEach(function (c) { c.checked = ev.target.checked; });
+        if (ev.target.matches('[data-marcar-todos]')) {
+            ev.target.closest('table').querySelectorAll('tbody input[type=checkbox]').forEach(function (c) { c.checked = ev.target.checked; });
+        }
+        if (ev.target.matches('[data-marcar-todos], input[name="ids[]"]')) { actualizarMasivo(); }
     });
+
+    /* Con clientes marcados, el bloque de cambios masivos queda flotando al pie de la pantalla. */
+    function actualizarMasivo() {
+        var bloque = document.getElementById('acciones-masivas');
+        if (!bloque) { return; }
+        var n = document.querySelectorAll('input[name="ids[]"]:checked').length;
+        bloque.classList.toggle('flotante', n > 0);
+        var contador = bloque.querySelector('[data-contador-masivo]');
+        if (contador) {
+            contador.textContent = n ? '· ' + n + ' marcado' + (n === 1 ? '' : 's') : '· marque clientes en la lista o elija «todos los del filtro»';
+        }
+    }
 
     /* Atajo: "/" enfoca el buscador general (salvo que se esté escribiendo). */
     document.addEventListener('keydown', function (ev) {

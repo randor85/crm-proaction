@@ -315,3 +315,15 @@ body.arrastrando { cursor: col-resize; user-select: none; }
     body.con-panel .contenido { margin: 0 auto; max-width: 1280px; }
     body.con-panel #panel-detalle { display: none; }
 }
+
+/* Cambios masivos: con elementos marcados, el bloque flota al pie (como la barra de un cliente de correo) */
+.acciones-masivas.flotante {
+    position: sticky; bottom: 0; z-index: 4; border-color: var(--primario);
+    box-shadow: 0 -6px 18px rgba(15, 23, 42, .12);
+}
+.acciones-masivas.flotante h2 { color: var(--primario); }
+input[type=radio] { width: auto; }
+.acciones-masivas .formulario label.check { display: inline-flex; margin: .6rem 1.5rem 0 0; }
+.acciones-masivas.flotante > p.tenue { display: none; }
+.acciones-masivas.flotante { padding-top: .75rem; padding-bottom: .75rem; }
+.acciones-masivas.flotante .acciones { margin-top: .6rem; }

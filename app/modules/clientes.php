@@ -461,8 +461,8 @@ layout_inicio('Clientes', 'clientes');
 </table>
 <?= paginacion_html($total) ?>
 <?php if ($clientes): ?>
-<section class="panel acciones-masivas">
-    <h2>Cambiar varios a la vez</h2>
+<section class="panel acciones-masivas" id="acciones-masivas">
+    <h2>Cambiar varios a la vez <small class="tenue" data-contador-masivo>· marque clientes en la lista o elija «todos los del filtro»</small></h2>
     <div class="fila-formulario formulario">
         <div><?= selector_etiqueta('m_categoria', 'Categoría', valores_cliente('categoria'), '__igual__', ['__igual__' => '— No cambiar —', '' => '— Quitar categoría —']) ?></div>
         <div><?= selector_etiqueta('m_situacion', 'Etiqueta', valores_cliente('situacion'), '__igual__', ['__igual__' => '— No cambiar —', '' => '— Quitar etiqueta —']) ?></div>
