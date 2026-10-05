@@ -180,9 +180,10 @@ function opciones_contactos(): array
     return $op;
 }
 
-function opciones_oportunidades(): array
+function opciones_oportunidades(bool $soloAbiertas = false, int $incluir = 0): array
 {
-    return array_column(q_todos('SELECT id, titulo FROM oportunidades ORDER BY titulo'), 'titulo', 'id');
+    $where = $soloAbiertas ? "WHERE etapa NOT IN ('ganada', 'perdida') OR id = " . $incluir : '';
+    return array_column(q_todos("SELECT id, titulo FROM oportunidades $where ORDER BY titulo"), 'titulo', 'id');
 }
 
 /**

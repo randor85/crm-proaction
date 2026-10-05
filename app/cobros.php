@@ -104,3 +104,36 @@ function cobros_del_periodo(string $periodo): array
          ORDER BY c.nombre, k.concepto', [$periodo]);
     return array_values(array_filter($filas, static fn($k) => cobro_aplica($k, $mes)));
 }
+
+/* ---------------- Tarifas de prospectos (lo que se cotiza antes de ser cliente) ---------------- */
+
+const TARIFAS = PERIODICIDADES + ['unico' => 'Servicio único'];
+
+const SERVICIOS = [
+    'Contabilidad mensual completa', 'IVA mensual (F29)', 'Remuneraciones', 'Declaración de renta (F22)',
+    'Asesoría tributaria', 'Inicio de actividades', 'Término de giro', 'Regularización tributaria',
+    'Constitución de sociedad', 'Rectificatoria / revisión SII',
+];
+
+/** "UF 3 mensual", "$ 250.000 único", "UF 6 anual (abril)". */
+function tarifa_texto(array $o): string
+{
+    if ((float)$o['monto'] <= 0) {
+        return '';
+    }
+    $monto = $o['tarifa_moneda'] === 'UF' ? 'UF ' . numero_corto($o['monto']) : dinero($o['monto']);
+    $tipo = mb_strtolower(TARIFAS[$o['tarifa_tipo']] ?? '');
+    $mes = in_array($o['tarifa_tipo'], ['anual', 'unico'], true) && !empty($o['tarifa_mes']) ? ' (' . MESES[(int)$o['tarifa_mes']] . ')' : '';
+    return "$monto $tipo$mes";
+}
+
+/** Equivalente mensual en pesos (para sumar el embudo). El servicio único no se mensualiza: devuelve null. */
+function tarifa_mensual_clp(array $o, ?float $uf): ?float
+{
+    $meses = MESES_POR_PERIODO[$o['tarifa_tipo']] ?? null;
+    if (!$meses || (float)$o['monto'] <= 0) {
+        return null;
+    }
+    $pesos = $o['tarifa_moneda'] === 'UF' ? ($uf ? (float)$o['monto'] * $uf : null) : (float)$o['monto'];
+    return $pesos === null ? null : $pesos / $meses;
+}

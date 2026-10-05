@@ -467,3 +467,64 @@ function reorganizar_etapa2(bool $aplicar): array
     }
     return $inf;
 }
+
+/* ================================================================
+ * Prospecto ganado → cliente
+ * ================================================================ */
+
+/**
+ * Convierte una oportunidad en cliente: usa el cliente del RUT si ya existe o crea uno, le pasa lo que
+ * colgaba del prospecto (tareas, gestiones, credenciales, documentos) y crea el plan de cobro de la tarifa.
+ * @return array{0: ?int, 1: ?string} [id del cliente, error]
+ */
+function convertir_en_cliente(int $oportunidadId): array
+{
+    $o = q_uno('SELECT o.*, e.nombre AS empresa, e.identificacion, e.cliente_id AS cliente_rut
+        FROM oportunidades o LEFT JOIN empresas e ON e.id = o.empresa_id WHERE o.id = ?', [$oportunidadId]);
+    if (!$o) {
+        return [null, 'La oportunidad no existe.'];
+    }
+    if ($o['cliente_id'] && q_valor('SELECT id FROM clientes WHERE id = ?', [$o['cliente_id']])) {
+        return [(int)$o['cliente_id'], 'Ya se había convertido en cliente.'];
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $clienteId = $o['cliente_rut'] ? (int)$o['cliente_rut'] : null;
+        $nuevo = !$clienteId;
+        if ($nuevo) {
+            $clienteId = insertar('clientes', [
+                'nombre' => mb_substr($o['empresa'] ?: $o['titulo'], 0, 150),
+                'tipo' => $o['identificacion'] && es_rut_persona($o['identificacion']) ? 'persona' : 'empresa',
+                'rut' => $o['identificacion'], 'ejecutivo_id' => $o['responsable_id'], 'activo' => 1,
+                'honorario_monto' => 0, 'honorario_moneda' => 'UF', 'documento_tipo' => 'factura_afecta',
+                'notas' => 'Cliente desde el prospecto «' . $o['titulo'] . '» (' . date('d/m/Y') . ').'
+                    . ($o['tarifa_tipo'] === 'unico' && $o['monto'] > 0 ? "\nServicio único acordado: " . tarifa_texto($o) . ($o['servicio'] ? ' · ' . $o['servicio'] : '') . '.' : ''),
+                'creado_en' => ahora(), 'actualizado_en' => ahora(),
+            ]);
+        }
+        if ($o['empresa_id']) {
+            q('UPDATE empresas SET cliente_id = ?, actualizado_en = ? WHERE id = ?', [$clienteId, ahora(), $o['empresa_id']]);
+            foreach (['tareas', 'credenciales', 'documentos', 'actividades'] as $tabla) {
+                q("UPDATE $tabla SET cliente_id = ? WHERE empresa_id = ? AND cliente_id IS NULL", [$clienteId, $o['empresa_id']]);
+            }
+        }
+        q('UPDATE tareas SET cliente_id = ? WHERE oportunidad_id = ? AND cliente_id IS NULL', [$clienteId, $oportunidadId]);
+        q('UPDATE actividades SET cliente_id = ? WHERE oportunidad_id = ? AND cliente_id IS NULL', [$clienteId, $oportunidadId]);
+        if (isset(PERIODICIDADES[$o['tarifa_tipo']]) && (float)$o['monto'] > 0) {
+            insertar('cobros', [
+                'cliente_id' => $clienteId, 'empresa_id' => $o['empresa_id'],
+                'concepto' => mb_substr($o['servicio'] ?: 'Honorarios asesoría tributaria', 0, 200),
+                'monto' => $o['monto'], 'moneda' => $o['tarifa_moneda'], 'documento_tipo' => 'factura_afecta',
+                'periodicidad' => $o['tarifa_tipo'], 'mes_inicio' => (int)($o['tarifa_mes'] ?: 1), 'activo' => 1,
+                'creado_en' => ahora(), 'actualizado_en' => ahora(),
+            ]);
+        }
+        q("UPDATE oportunidades SET cliente_id = ?, etapa = 'ganada', actualizado_en = ? WHERE id = ?", [$clienteId, ahora(), $oportunidadId]);
+        $pdo->commit();
+    } catch (Throwable $ex) {
+        $pdo->rollBack();
+        throw $ex;
+    }
+    return [$clienteId, null];
+}

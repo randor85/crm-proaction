@@ -28,7 +28,8 @@ function completar_tarea(array $t): ?int
     }
     return insertar('tareas', [
         'titulo' => $t['titulo'], 'descripcion' => $t['descripcion'], 'cliente_id' => $t['cliente_id'],
-        'empresa_id' => $t['empresa_id'], 'responsable_id' => $t['responsable_id'], 'vencimiento' => $siguiente,
+        'empresa_id' => $t['empresa_id'], 'oportunidad_id' => $t['oportunidad_id'] ?? null,
+        'responsable_id' => $t['responsable_id'], 'vencimiento' => $siguiente,
         'estado' => 'pendiente', 'prioridad' => $t['prioridad'], 'recurrencia' => $t['recurrencia'],
         'creado_por' => (int)usuario_actual()['id'], 'creado_en' => ahora(), 'actualizado_en' => ahora(),
     ]);
@@ -56,6 +57,7 @@ if ($accion === 'guardar' && es_post()) {
         'descripcion'    => nulo_si_vacio(entrada('descripcion')),
         'cliente_id'     => entrada_int('cliente_id'),
         'empresa_id'     => entrada_int('empresa_id'),
+        'oportunidad_id' => entrada_int('oportunidad_id'),
         'responsable_id' => entrada_int('responsable_id'),
         'vencimiento'    => entrada_fecha('vencimiento'),
         'estado'         => isset(ESTADOS_TAREA[$estado]) ? $estado : 'pendiente',
@@ -63,6 +65,10 @@ if ($accion === 'guardar' && es_post()) {
         'recurrencia'    => isset(RECURRENCIAS[$recurrencia]) ? $recurrencia : 'ninguna',
         'actualizado_en' => ahora(),
     ];
+    // Tarea de un prospecto: toma su RUT si no se eligió otro
+    if ($datos['oportunidad_id'] && !$datos['empresa_id']) {
+        $datos['empresa_id'] = q_valor('SELECT empresa_id FROM oportunidades WHERE id = ?', [$datos['oportunidad_id']]);
+    }
     // Si se eligió un RUT sin cliente, se toma el cliente del RUT.
     if (!$datos['cliente_id'] && $datos['empresa_id']) {
         $datos['cliente_id'] = q_valor('SELECT cliente_id FROM empresas WHERE id = ?', [$datos['empresa_id']]);
@@ -100,7 +106,9 @@ if ($accion === 'guardar' && es_post()) {
             flash('ok', 'Se creó la próxima tarea recurrente con vencimiento ' . fecha(q_valor('SELECT vencimiento FROM tareas WHERE id = ?', [$nueva])) . '.');
         }
     }
-    redirigir(url('tareas', ['a' => 'ver', 'id' => $id]));
+    redirigir(entrada('volver') === 'oportunidad' && $datos['oportunidad_id']
+        ? url('oportunidades', ['a' => 'ver', 'id' => $datos['oportunidad_id']])
+        : url('tareas', ['a' => 'ver', 'id' => $id]));
 }
 
 /* ---------- Cambio rápido de estado ---------- */
@@ -135,6 +143,7 @@ if ($accion === 'gestion' && es_post() && $id) {
             'cliente_id'  => $t['cliente_id'],
             'empresa_id'  => $t['empresa_id'],
             'tarea_id'    => $id,
+            'oportunidad_id' => $t['oportunidad_id'] ?? null,
             'usuario_id'  => $uid,
             'creado_en'   => ahora(),
         ]);
@@ -172,6 +181,7 @@ if ($accion === 'form') {
     $t = $id ? q_uno('SELECT * FROM tareas WHERE id = ?', [$id]) : [
         'cliente_id'     => entrada_int('cliente_id'),
         'empresa_id'     => entrada_int('empresa_id'),
+        'oportunidad_id' => entrada_int('oportunidad_id'),
         'responsable_id' => $uid,
         'estado'         => 'pendiente',
         'prioridad'      => 'normal',
@@ -186,7 +196,7 @@ if ($accion === 'form') {
     layout_inicio($id ? 'Editar tarea' : 'Nueva tarea', 'tareas');
     ?>
     <h1><?= $id ? 'Editar tarea' : 'Nueva tarea' ?></h1>
-    <form method="post" action="<?= e(url('tareas', ['a' => 'guardar', 'id' => $id])) ?>" class="formulario rejilla">
+    <form method="post" action="<?= e(url('tareas', ['a' => 'guardar', 'id' => $id] + (!$id && !empty($t['oportunidad_id']) ? ['volver' => 'oportunidad'] : []))) ?>" class="formulario rejilla">
         <?= csrf_campo() ?>
         <div class="completo">
             <?= campo('titulo', 'Tarea *', $t['titulo'] ?? '', 'text', 'required maxlength="200" list="obligaciones" placeholder="Escriba o elija una obligación habitual"') ?>
@@ -194,6 +204,7 @@ if ($accion === 'form') {
         </div>
         <div><?= selector('cliente_id', 'Cliente', opciones_clientes(), $t['cliente_id'] ?? '', 'Sin cliente (tarea interna)') ?></div>
         <div><?= selector_empresa('empresa_id', 'RUT / Empresa', $t['empresa_id'] ?? '', 'Todas / no aplica') ?></div>
+        <div><?= selector('oportunidad_id', 'Prospecto / oportunidad', opciones_oportunidades(true, (int)($t['oportunidad_id'] ?? 0)), $t['oportunidad_id'] ?? '', 'No es de un prospecto') ?></div>
         <div><?= selector('responsable_id', 'Responsable', opciones_responsables($t['cliente_id'] ? (int)$t['cliente_id'] : null), $t['responsable_id'] ?? '') ?></div>
         <div><?= campo('vencimiento', 'Vencimiento', $t['vencimiento'] ?? '', 'date') ?></div>
         <div><?= selector('estado', 'Estado', ESTADOS_TAREA, $t['estado'], false) ?></div>
@@ -215,8 +226,9 @@ if ($accion === 'form') {
 if ($accion === 'ver' && $id) {
     $t = q_uno(
         'SELECT t.*, c.nombre AS cliente, e.nombre AS empresa, e.identificacion AS empresa_rut,
-            u.nombre AS responsable, cr.nombre AS creador
+            u.nombre AS responsable, cr.nombre AS creador, o.titulo AS oportunidad
          FROM tareas t LEFT JOIN clientes c ON c.id = t.cliente_id LEFT JOIN empresas e ON e.id = t.empresa_id
+         LEFT JOIN oportunidades o ON o.id = t.oportunidad_id
          LEFT JOIN usuarios u ON u.id = t.responsable_id LEFT JOIN usuarios cr ON cr.id = t.creado_por
          WHERE t.id = ?', [$id]);
     if (!$t) {
@@ -231,7 +243,7 @@ if ($accion === 'ver' && $id) {
     <div class="encabezado">
         <div class="titulo">
             <h1><?= e($t['titulo']) ?></h1>
-            <p class="tenue"><?= $t['cliente'] ? enlace('clientes', $t['cliente_id'], $t['cliente']) : 'Tarea interna' ?>
+            <p class="tenue"><?= $t['cliente'] ? enlace('clientes', $t['cliente_id'], $t['cliente']) : ($t['oportunidad'] ? 'Prospecto: ' . enlace('oportunidades', $t['oportunidad_id'], $t['oportunidad']) : 'Tarea interna') ?>
                 <?php if ($t['empresa']): ?> · <?= enlace('empresas', $t['empresa_id'], $t['empresa'] . ' (' . $t['empresa_rut'] . ')') ?><?php endif; ?></p>
         </div>
         <div>

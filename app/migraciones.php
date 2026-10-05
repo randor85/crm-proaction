@@ -279,6 +279,25 @@ const MIGRACIONES = [
         'INSERT INTO contacto_empresas (contacto_id, empresa_id, rol)
          SELECT id, empresa_id, cargo FROM contactos WHERE empresa_id IS NOT NULL',
     ],
+
+    // Prospectos como embudo de venta: servicio, tipo de tarifa, tareas propias y cliente resultante
+    '2026_10_05_prospectos_pipeline' => [
+        'ALTER TABLE oportunidades ADD COLUMN servicio VARCHAR(150) NULL',
+        'ALTER TABLE oportunidades ADD COLUMN tarifa_tipo VARCHAR(12) NOT NULL DEFAULT \'mensual\'',
+        'ALTER TABLE oportunidades ADD COLUMN tarifa_moneda VARCHAR(3) NOT NULL DEFAULT \'UF\'',
+        'ALTER TABLE oportunidades ADD COLUMN tarifa_mes {INT} NULL',
+        'ALTER TABLE oportunidades ADD COLUMN cliente_id {INT} NULL',
+        // El monto anterior era un estimado en pesos
+        "UPDATE oportunidades SET tarifa_moneda = 'CLP' WHERE monto > 0",
+        'ALTER TABLE tareas ADD COLUMN oportunidad_id {INT} NULL',
+        'CREATE INDEX idx_tareas_oportunidad ON tareas (oportunidad_id, estado)',
+        // Las tareas que quedaron en el RUT de un prospecto (sin cliente) pasan a ser tareas de ese prospecto
+        'UPDATE tareas SET oportunidad_id = (SELECT MIN(o.id) FROM oportunidades o WHERE o.empresa_id = tareas.empresa_id)
+         WHERE cliente_id IS NULL AND empresa_id IS NOT NULL',
+        // y las gestiones hechas en esas tareas aparecen también en el prospecto
+        'UPDATE actividades SET oportunidad_id = (SELECT t.oportunidad_id FROM tareas t WHERE t.id = actividades.tarea_id)
+         WHERE oportunidad_id IS NULL AND tarea_id IS NOT NULL',
+    ],
 ];
 
 function migracion_sql(string $sql): string

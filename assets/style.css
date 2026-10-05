@@ -327,3 +327,8 @@ input[type=radio] { width: auto; }
 .acciones-masivas.flotante > p.tenue { display: none; }
 .acciones-masivas.flotante { padding-top: .75rem; padding-bottom: .75rem; }
 .acciones-masivas.flotante .acciones { margin-top: .6rem; }
+
+/* Formulario de oportunidades: datos para crear un RUT o contacto nuevo */
+.grupo-nuevo { background: #f8fafc; border: 1px dashed var(--borde); border-radius: 6px; padding: 0 .75rem .6rem; margin-top: .8rem; }
+.grupo-nuevo label { font-weight: normal; color: var(--tenue); }
+.rejilla h3.completo { margin: 1.2rem 0 0; padding-top: .8rem; border-top: 1px solid var(--borde); }
