@@ -147,6 +147,11 @@ layout_inicio('Sistema', 'sistema');
 <?php endif; ?>
 
 <section class="panel">
+    <div class="encabezado"><h2>Correos</h2><a class="boton secundario" href="<?= e(url('correos')) ?>">Configurar</a></div>
+    <p>Buzones que el servidor lee por IMAP, cola de correos por clasificar y token de la rutina de Claude que deja propuestas en la Bandeja de correos.</p>
+</section>
+
+<section class="panel">
     <h2>Llave de cifrado de credenciales</h2>
     <?php if (llave_existe()): ?>
         <p>La llave existe en <code><?= e(llave_ruta()) ?></code>.</p>

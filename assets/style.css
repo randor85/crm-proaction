@@ -46,6 +46,8 @@ code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; }
 .barra nav { display: flex; gap: .25rem; flex: 1; }
 .barra nav a { padding: .45rem .8rem; border-radius: 6px; }
 .barra nav a.activo { background: #1e293b; color: #fff; }
+.barra nav .contador { display: inline-block; min-width: 1.25rem; padding: 0 .35rem; margin-left: .2rem; border-radius: 999px;
+    background: var(--primario); color: #fff; font-size: .72rem; font-weight: 700; text-align: center; line-height: 1.25rem; }
 .barra .usuario { display: flex; gap: 1rem; align-items: center; }
 .barra .salir { opacity: .8; }
 .menu-movil { display: none; }

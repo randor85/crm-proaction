@@ -298,6 +298,82 @@ const MIGRACIONES = [
         'UPDATE actividades SET oportunidad_id = (SELECT t.oportunidad_id FROM tareas t WHERE t.id = actividades.tarea_id)
          WHERE oportunidad_id IS NULL AND tarea_id IS NOT NULL',
     ],
+
+    // Bandeja de correos: cola de propuestas (tareas, reuniones, gestiones, prospectos) detectadas en los
+    // correos del equipo, que una persona aprueba o rechaza antes de que pasen a los datos reales
+    '2026_10_06_bandeja_correos' => [
+        'CREATE TABLE bandeja_correos (
+            id                {ID},
+            correo_hash       CHAR(40)     NOT NULL,
+            correo_ref        VARCHAR(250) NULL,
+            ordinal           {INT} NOT NULL DEFAULT 1,
+            tipo              VARCHAR(12)  NOT NULL,
+            titulo            VARCHAR(200) NOT NULL,
+            detalle           TEXT NULL,
+            fecha_evento      DATETIME NULL,
+            cliente_texto     VARCHAR(150) NULL,
+            contacto_nombre   VARCHAR(100) NULL,
+            contacto_email    VARCHAR(150) NULL,
+            responsable_email VARCHAR(150) NULL,
+            confianza         VARCHAR(8)   NOT NULL DEFAULT \'media\',
+            remitente         VARCHAR(200) NULL,
+            asunto            VARCHAR(250) NULL,
+            recibido_en       DATETIME NULL,
+            buzones           VARCHAR(250) NULL,
+            estado            VARCHAR(10)  NOT NULL DEFAULT \'pendiente\',
+            creado_tipo       VARCHAR(12)  NULL,
+            creado_id         {INT} NULL,
+            revisado_por      {INT} NULL,
+            revisado_en       DATETIME NULL,
+            creado_en         DATETIME NOT NULL,
+            FOREIGN KEY (revisado_por) REFERENCES usuarios(id) ON DELETE SET NULL
+        {FIN}',
+        'CREATE UNIQUE INDEX uq_bandeja_propuesta ON bandeja_correos (correo_hash, tipo, ordinal)',
+        'CREATE INDEX idx_bandeja_estado ON bandeja_correos (estado, creado_en)',
+    ],
+
+    // Lectura de correos por IMAP en el servidor: buzones (clave cifrada), extractos por clasificar
+    // (se borran a los 14 días) y ajustes sueltos como el hash del token de la rutina de Claude
+    '2026_10_07_correos_imap' => [
+        'CREATE TABLE ajustes (
+            clave          VARCHAR(60) NOT NULL PRIMARY KEY,
+            valor          TEXT NULL,
+            actualizado_en DATETIME NOT NULL
+        {FIN}',
+        'CREATE TABLE correo_buzones (
+            id             {ID},
+            usuario        VARCHAR(150) NOT NULL,
+            clave_cifrada  TEXT NOT NULL,
+            activo         {BOOL} NOT NULL DEFAULT 1,
+            uidvalidity    {INT} NOT NULL DEFAULT 0,
+            ultimo_uid     {INT} NOT NULL DEFAULT 0,
+            leido_en       DATETIME NULL,
+            error          TEXT NULL,
+            error_en       DATETIME NULL,
+            creado_en      DATETIME NOT NULL
+        {FIN}',
+        'CREATE UNIQUE INDEX uq_correo_buzones_usuario ON correo_buzones (usuario)',
+        'CREATE TABLE correos_entrantes (
+            id              {ID},
+            correo_hash     CHAR(40)     NOT NULL,
+            message_id      VARCHAR(250) NOT NULL,
+            buzones         VARCHAR(250) NULL,
+            uid             {INT} NULL,
+            remitente       VARCHAR(200) NULL,
+            remitente_email VARCHAR(150) NULL,
+            para            TEXT NULL,
+            asunto          VARCHAR(250) NULL,
+            recibido_en     DATETIME NULL,
+            cuerpo          TEXT NULL,
+            automatico      {BOOL} NOT NULL DEFAULT 0,
+            estado          VARCHAR(10)  NOT NULL DEFAULT \'nuevo\',
+            propuestas      {INT} NOT NULL DEFAULT 0,
+            clasificado_en  DATETIME NULL,
+            creado_en       DATETIME NOT NULL
+        {FIN}',
+        'CREATE UNIQUE INDEX uq_correos_entrantes_hash ON correos_entrantes (correo_hash)',
+        'CREATE INDEX idx_correos_entrantes_estado ON correos_entrantes (estado, recibido_en)',
+    ],
 ];
 
 function migracion_sql(string $sql): string

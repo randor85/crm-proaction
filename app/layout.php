@@ -12,6 +12,7 @@ const MENU = [
     'credenciales'  => 'Credenciales',
     'contactos'     => 'Contactos',
     'oportunidades' => 'Oportunidades',
+    'bandeja'       => 'Bandeja de correos',
 ];
 
 function layout_inicio(string $titulo, string $rutaActiva = ''): void
@@ -36,7 +37,7 @@ function layout_inicio(string $titulo, string $rutaActiva = ''): void
     <button class="menu-movil" type="button" onclick="document.body.classList.toggle('menu-abierto')" aria-label="Menú">☰</button>
     <nav>
         <?php foreach (MENU as $ruta => $texto): ?>
-            <a href="<?= e(url($ruta)) ?>" class="<?= $ruta === $rutaActiva ? 'activo' : '' ?>"><?= e($texto) ?></a>
+            <a href="<?= e(url($ruta)) ?>" class="<?= $ruta === $rutaActiva ? 'activo' : '' ?>"><?= e($texto) ?><?php if ($ruta === 'bandeja' && ($porRevisar = bandeja_pendientes()) > 0): ?> <span class="contador"><?= $porRevisar ?></span><?php endif; ?></a>
         <?php endforeach; ?>
         <?php if (es_admin()): ?>
             <a href="<?= e(url('usuarios')) ?>" class="<?= $rutaActiva === 'usuarios' ? 'activo' : '' ?>">Usuarios</a>
