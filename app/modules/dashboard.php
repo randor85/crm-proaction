@@ -35,6 +35,20 @@ $mandatos = q_todos(
      WHERE mandato_facturacion = 1 AND mandato_hasta IS NOT NULL AND mandato_hasta <= ? ORDER BY mandato_hasta",
     [date('Y-m-d', strtotime('+30 days'))]);
 
+// Bandeja de correos: propuestas por revisar (las tablas pueden no existir aún en una instalación nueva)
+try {
+    $bandejaPorTipo = array_column(q_todos("SELECT tipo, COUNT(*) AS n FROM bandeja_correos WHERE estado = 'pendiente' GROUP BY tipo"), 'n', 'tipo');
+    $bandejaUltimas = q_todos("SELECT id, tipo, titulo, cliente_texto, confianza, recibido_en, fecha_evento FROM bandeja_correos
+        WHERE estado = 'pendiente' ORDER BY recibido_en DESC, id DESC LIMIT 6");
+    $ultimaClasificacion = q_valor('SELECT MAX(clasificado_en) FROM correos_entrantes');
+} catch (PDOException $ex) {
+    $bandejaPorTipo = [];
+    $bandejaUltimas = [];
+    $ultimaClasificacion = null;
+}
+$bandejaTotal = array_sum($bandejaPorTipo);
+$correosEnCola = correos_por_clasificar();
+
 $pipeline = q_todos("SELECT etapa, COUNT(*) AS n, COALESCE(SUM(monto), 0) AS total FROM oportunidades GROUP BY etapa");
 $porEtapa = array_column($pipeline, null, 'etapa');
 
@@ -67,7 +81,38 @@ layout_inicio('Inicio', 'dashboard');
     <div class="tarjeta"><span class="cifra"><?= $utm ? e(dinero($utm)) : '—' ?></span><span>UTM <?= e(date('m/Y')) ?></span></div>
     <a class="tarjeta" href="<?= e(url('tareas')) ?>"><span class="cifra"><?= $abiertas ?></span><span>Mis tareas abiertas<?= $esperando ? " ($esperando esperando al cliente)" : '' ?></span></a>
     <a class="tarjeta" href="<?= e(url('tareas', ['estado' => 'vencidas', 'quien' => 'todos'])) ?>"><span class="cifra <?= $vencidasEquipo ? 'texto-peligro' : '' ?>"><?= $vencidasEquipo ?></span><span>Tareas vencidas del equipo</span></a>
+    <a class="tarjeta" href="<?= e(url('bandeja')) ?>"><span class="cifra <?= $bandejaTotal ? 'texto-aviso' : '' ?>"><?= $bandejaTotal ?></span><span>Propuestas de correos por revisar</span></a>
     <a class="tarjeta" href="<?= e(url('facturas', ['estado_f' => 'por_cobrar'])) ?>"><span class="cifra"><?= e(dinero($porCobrar)) ?></span><span>Por cobrar<?= $borradores ? " · $borradores borrador(es)" : '' ?></span></a>
+</section>
+
+<section class="panel panel-bandeja">
+    <div class="encabezado">
+        <h2>Bandeja de correos</h2>
+        <a href="<?= e(url('bandeja')) ?>"><?= $bandejaTotal ? 'Revisar todas →' : 'Abrir la bandeja →' ?></a>
+    </div>
+    <?php if (!$bandejaTotal): ?>
+        <p class="vacio">No hay propuestas por revisar.</p>
+    <?php else: ?>
+        <div class="resumen-tipos">
+            <?php foreach (TIPOS_BANDEJA as $clave => $nombre): if (empty($bandejaPorTipo[$clave])) continue; ?>
+                <a class="chip-tipo" href="<?= e(url('bandeja', ['tipo' => $clave])) ?>"><strong><?= (int)$bandejaPorTipo[$clave] ?></strong> <?= e(mb_strtolower($nombre)) ?><?= $bandejaPorTipo[$clave] > 1 ? ($clave === 'reunion' ? 'es' : 's') : '' ?></a>
+            <?php endforeach; ?>
+        </div>
+        <table><tbody>
+        <?php foreach ($bandejaUltimas as $b): ?>
+            <tr>
+                <td class="nowrap"><span class="badge"><?= e(TIPOS_BANDEJA[$b['tipo']] ?? $b['tipo']) ?></span></td>
+                <td><a href="<?= e(url('bandeja', ['a' => 'revisar', 'id' => $b['id']])) ?>"><?= e($b['titulo']) ?></a>
+                    <?php if ($b['cliente_texto']): ?><br><small class="tenue"><?= e($b['cliente_texto']) ?></small><?php endif; ?></td>
+                <td class="nowrap tenue"><?= e(fecha($b['fecha_evento'] ?: $b['recibido_en'])) ?></td>
+                <td class="nowrap"><small class="tenue">confianza <?= e(mb_strtolower(CONFIANZAS_BANDEJA[$b['confianza']] ?? $b['confianza'])) ?></small></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php if ($bandejaTotal > count($bandejaUltimas)): ?><p class="tenue">y <?= $bandejaTotal - count($bandejaUltimas) ?> más en la bandeja.</p><?php endif; ?>
+    <?php endif; ?>
+    <p class="tenue chico-texto">Última clasificación: <?= $ultimaClasificacion ? e(fecha($ultimaClasificacion, true)) : 'aún no hay' ?>
+        <?= $correosEnCola ? ' · ' . $correosEnCola . ' correo(s) esperando la próxima clasificación' : '' ?></p>
 </section>
 
 <div class="columnas">

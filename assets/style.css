@@ -334,3 +334,9 @@ input[type=radio] { width: auto; }
 .grupo-nuevo { background: #f8fafc; border: 1px dashed var(--borde); border-radius: 6px; padding: 0 .75rem .6rem; margin-top: .8rem; }
 .grupo-nuevo label { font-weight: normal; color: var(--tenue); }
 .rejilla h3.completo { margin: 1.2rem 0 0; padding-top: .8rem; border-top: 1px solid var(--borde); }
+
+/* Inicio: resumen de la Bandeja de correos */
+.resumen-tipos { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
+.chip-tipo { border: 1px solid var(--borde); border-radius: 999px; padding: .2rem .75rem; color: var(--texto); background: #f8fafc; }
+.chip-tipo:hover { border-color: var(--primario); text-decoration: none; }
+.chip-tipo strong { color: var(--primario); }
