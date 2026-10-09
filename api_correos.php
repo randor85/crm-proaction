@@ -4,10 +4,14 @@ declare(strict_types=1);
 /*
  * API para la rutina de Claude que clasifica los correos.
  *
- *   GET  api_correos.php            → correos por clasificar (extractos) + contexto mínimo del CRM
+ *   GET  api_correos.php            → correos por clasificar (extractos) + contexto del CRM: equipo, clientes,
+ *                                     tareas abiertas, gestiones y prospectos existentes, y propuestas ya hechas,
+ *                                     para que la rutina reconozca lo que ya existe antes de proponer
  *   POST api_correos.php  (JSON)    → { "propuestas": [...], "procesados": [ids] }
  *        guarda las propuestas en la Bandeja de correos (cola de revisión) y marca esos correos
- *        como clasificados. No toca clientes, tareas, gestiones ni oportunidades.
+ *        como clasificados. Cada propuesta puede ser nueva o apuntar a un registro existente
+ *        (accion: complementar | actualizar | saltar, con destino_tipo y destino_id).
+ *        No toca clientes, tareas, gestiones ni oportunidades: eso solo ocurre al aprobar en la Bandeja.
  *
  * Acceso: cabecera X-Correos-Token con el token de la rutina. En la base solo se guarda su hash
  * (Sistema → Correos → Generar token). No usa sesión ni la restricción por IP, igual que ical.php.
@@ -57,12 +61,45 @@ if ($metodo === 'GET') {
             'remitente' => $c['remitente'], 'para' => $c['para'], 'asunto' => $c['asunto'],
             'recibido_en' => substr((string)$c['recibido_en'], 0, 16), 'cuerpo' => $c['cuerpo'],
         ], $correos),
-        // Contexto para reconocer clientes, prospectos y al equipo (solo nombres y RUT)
+        // Contexto para reconocer clientes, prospectos y al equipo, y lo que ya está registrado en el CRM
         'contexto'  => [
             'equipo'     => q_todos('SELECT nombre, email FROM usuarios WHERE activo = 1 ORDER BY nombre'),
-            'clientes'   => q_todos('SELECT nombre, rut FROM clientes WHERE activo = 1 ORDER BY nombre'),
+            'clientes'   => q_todos('SELECT id, nombre, rut FROM clientes WHERE activo = 1 ORDER BY nombre'),
             'prospectos' => array_column(q_todos("SELECT titulo FROM oportunidades WHERE etapa NOT IN ('ganada', 'perdida') ORDER BY titulo"), 'titulo'),
+            // Lo existente (con id, para poder apuntar a ello en una propuesta)
+            'tareas' => array_map(static function ($t) {
+                $t['id'] = (int)$t['id'];
+                $t['descripcion'] = mb_substr((string)$t['descripcion'], 0, 150);
+                return $t;
+            }, q_todos(
+                "SELECT t.id, t.titulo, t.descripcion, c.nombre AS cliente, t.estado, t.vencimiento, t.prioridad,
+                        u.nombre AS responsable, t.completada_en
+                 FROM tareas t LEFT JOIN clientes c ON c.id = t.cliente_id LEFT JOIN usuarios u ON u.id = t.responsable_id
+                 WHERE t.estado <> 'completada' OR t.completada_en >= ? ORDER BY t.id DESC LIMIT 1500",
+                [date('Y-m-d', strtotime('-30 days'))])),
+            'gestiones' => q_todos(
+                "SELECT a.id, a.tipo, a.asunto, a.fecha, c.nombre AS cliente, a.tarea_id, a.completada
+                 FROM actividades a LEFT JOIN clientes c ON c.id = a.cliente_id
+                 WHERE a.fecha >= ? ORDER BY a.fecha DESC LIMIT 500",
+                [date('Y-m-d', strtotime('-60 days'))]),
+            'oportunidades' => array_map(static function ($o) {
+                $o['id'] = (int)$o['id'];
+                $o['notas'] = mb_substr((string)$o['notas'], 0, 150);
+                return $o;
+            }, q_todos(
+                "SELECT o.id, o.titulo, e.nombre AS empresa, o.servicio, o.etapa, o.notas
+                 FROM oportunidades o LEFT JOIN empresas e ON e.id = o.empresa_id
+                 WHERE o.etapa NOT IN ('perdida') ORDER BY o.id DESC LIMIT 500")),
+            'propuestas_recientes' => bandeja_resumen_para_rutina(),
         ],
+        'guia' => 'Antes de proponer, compare cada tarea, reunión, gestión o prospecto detectado con contexto.tareas, '
+            . 'contexto.gestiones, contexto.oportunidades y contexto.propuestas_recientes (mismo cliente y mismo asunto o hilo). '
+            . 'Si ya existe, NO proponga una nueva: agregue a la propuesta "accion" = "saltar" (el correo no aporta nada nuevo), '
+            . '"complementar" (aporta datos nuevos: ponga el texto en "detalle") o "actualizar" (cambia fecha, estado, prioridad o etapa: '
+            . 'ponga los valores en "cambios", p. ej. {"vencimiento":"2026-10-20","estado":"esperando"}); más "destino_tipo" '
+            . '("tarea", "actividad" u "oportunidad"), "destino_id" (el id del contexto) y "motivo" (una frase). '
+            . 'Si coincide con una propuesta de propuestas_recientes pendiente, use "saltar". Sin coincidencia, "accion" = "nueva" u omítala. '
+            . 'Una tarea no se completa por correo: si el correo indica que se hizo, use "complementar" con esa nota.',
     ]);
 }
 

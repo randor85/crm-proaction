@@ -374,6 +374,16 @@ const MIGRACIONES = [
         'CREATE UNIQUE INDEX uq_correos_entrantes_hash ON correos_entrantes (correo_hash)',
         'CREATE INDEX idx_correos_entrantes_estado ON correos_entrantes (estado, recibido_en)',
     ],
+
+    // La Bandeja reconoce lo que ya existe en el CRM: una propuesta puede apuntar a una tarea, gestión
+    // o prospecto existente para complementarla, actualizarla u omitirse (en vez de crear un duplicado)
+    '2026_10_09_bandeja_vinculos' => [
+        'ALTER TABLE bandeja_correos ADD COLUMN accion VARCHAR(12) NOT NULL DEFAULT \'nueva\'',
+        'ALTER TABLE bandeja_correos ADD COLUMN destino_tipo VARCHAR(12) NULL',
+        'ALTER TABLE bandeja_correos ADD COLUMN destino_id {INT} NULL',
+        'ALTER TABLE bandeja_correos ADD COLUMN motivo VARCHAR(300) NULL',
+        'ALTER TABLE bandeja_correos ADD COLUMN cambios TEXT NULL',
+    ],
 ];
 
 function migracion_sql(string $sql): string

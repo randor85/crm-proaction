@@ -179,6 +179,47 @@ if ($accion === 'aprobar' && es_post() && $id) {
     redirigir(url('bandeja'));
 }
 
+/* ---------- Aplicar a un registro existente (complementar o actualizar) en vez de crear uno nuevo ---------- */
+if ($accion === 'aplicar' && es_post() && $id) {
+    $p = q_uno('SELECT * FROM bandeja_correos WHERE id = ?', [$id]);
+    if (!$p || $p['estado'] !== 'pendiente') {
+        flash('aviso', 'Esa propuesta ya fue revisada por alguien más.');
+        redirigir(url('bandeja'));
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $reservada = q("UPDATE bandeja_correos SET estado = 'aprobada', revisado_por = ?, revisado_en = ? WHERE id = ? AND estado = 'pendiente'",
+            [$uid, ahora(), $id])->rowCount();
+        if ($reservada !== 1) {
+            $pdo->rollBack();
+            flash('aviso', 'Esa propuesta ya fue revisada por alguien más.');
+            redirigir(url('bandeja'));
+        }
+        $mensaje = bandeja_aplicar_a_existente($p, (string)$p['destino_tipo'], (int)$p['destino_id'], [
+            'nota' => entrada('nota'), 'estado' => entrada('estado'), 'vencimiento' => entrada('vencimiento'),
+            'prioridad' => entrada('prioridad'), 'etapa' => entrada('etapa'),
+        ]);
+        q('UPDATE bandeja_correos SET creado_tipo = ?, creado_id = ? WHERE id = ?', [$p['destino_tipo'], (int)$p['destino_id'], $id]);
+        $pdo->commit();
+    } catch (InvalidArgumentException $ex) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        flash('error', $ex->getMessage());
+        redirigir(url('bandeja', ['a' => 'revisar', 'id' => $id]));
+    } catch (Throwable $ex) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('CRM - bandeja, al aplicar: ' . $ex->getMessage());
+        flash('error', 'No se pudo actualizar el registro existente.');
+        redirigir(url('bandeja', ['a' => 'revisar', 'id' => $id]));
+    }
+    flash('ok', $mensaje . '.');
+    redirigir(url('bandeja'));
+}
+
 /* ---------- Rechazar / volver a dejar por revisar ---------- */
 if ($accion === 'rechazar' && es_post() && $id) {
     $n = q("UPDATE bandeja_correos SET estado = 'rechazada', revisado_por = ?, revisado_en = ? WHERE id = ? AND estado = 'pendiente'",
@@ -187,9 +228,9 @@ if ($accion === 'rechazar' && es_post() && $id) {
     redirigir(url('bandeja'));
 }
 if ($accion === 'reabrir' && es_post() && $id) {
-    q("UPDATE bandeja_correos SET estado = 'pendiente', revisado_por = NULL, revisado_en = NULL WHERE id = ? AND estado = 'rechazada'", [$id]);
+    q("UPDATE bandeja_correos SET estado = 'pendiente', revisado_por = NULL, revisado_en = NULL WHERE id = ? AND estado IN ('rechazada', 'omitida')", [$id]);
     flash('ok', 'La propuesta volvió a «Por revisar».');
-    redirigir(url('bandeja', ['estado' => 'rechazada']));
+    redirigir(url('bandeja', ['estado' => 'pendiente']));
 }
 
 /* ---------- Revisión: formulario precargado ---------- */
@@ -228,6 +269,40 @@ if ($accion === 'revisar' && $id) {
             <?php if ($p['cliente_texto']): ?><br><strong>Cliente o empresa mencionados:</strong> <?= e($p['cliente_texto']) ?><?php endif; ?>
         </p>
     </section>
+
+    <?php
+    $existente = bandeja_destino($p['destino_tipo'], $p['destino_id']);
+    if ($existente):
+        [$dTabla, $dNotas, $dRuta, $dAccion, $dNombre] = DESTINOS_BANDEJA[$p['destino_tipo']];
+        $cambiosProp = $p['cambios'] ? (json_decode((string)$p['cambios'], true) ?: []) : [];
+        $permitidos = bandeja_cambios_permitidos($p['destino_tipo']);
+        $esDuplicado = $p['accion'] === 'nueva';
+        ?>
+    <section class="panel" style="border-left:4px solid #b45309">
+        <h2><?= $esDuplicado ? 'Posible duplicado: ya existe ' : 'Ya existe ' ?>una <?= e($dNombre) ?> parecida</h2>
+        <p><a href="<?= e(url($dRuta, ['a' => $dAccion, 'id' => $existente['id']])) ?>" target="_blank" rel="noopener"><strong><?= e(bandeja_destino_titulo($existente)) ?></strong></a>
+            <?php if (isset($existente['estado'])): ?> · <?= e(ESTADOS_TAREA[$existente['estado']] ?? $existente['estado']) ?><?php endif; ?>
+            <?php if (!empty($existente['vencimiento'])): ?> · vence <?= e(fecha($existente['vencimiento'])) ?><?php endif; ?>
+            <?php if (isset($existente['etapa'])): ?> · etapa <?= e(ETAPAS[$existente['etapa']] ?? $existente['etapa']) ?><?php endif; ?>
+            <?php if ($p['motivo']): ?><br><small class="tenue"><?= e($p['motivo']) ?></small><?php endif; ?></p>
+        <form method="post" action="<?= e(url('bandeja', ['a' => 'aplicar', 'id' => $id])) ?>" class="formulario rejilla">
+            <?= csrf_campo() ?>
+            <div class="completo"><?= area('nota', 'Nota que se agrega a la ' . $dNombre . ' existente (queda fechada con el correo de origen)', $p['detalle'] ?? '') ?></div>
+            <?php foreach ($permitidos as $campoCambio => $opcionesCambio): ?>
+                <div><?php
+                    $valorInicial = $cambiosProp[$campoCambio] ?? '';
+                    if ($campoCambio === 'vencimiento') {
+                        echo campo('vencimiento', 'Cambiar vencimiento', $valorInicial ? substr((string)bandeja_fecha($valorInicial), 0, 10) : '', 'date');
+                    } else {
+                        echo selector($campoCambio, 'Cambiar ' . ($campoCambio === 'estado' ? 'estado' : ($campoCambio === 'prioridad' ? 'prioridad' : 'etapa')), $opcionesCambio, $valorInicial, '— Sin cambio —');
+                    }
+                    ?></div>
+            <?php endforeach; ?>
+            <div class="completo acciones"><button type="submit">Aplicar a la <?= e($dNombre) ?> existente</button>
+                <span class="tenue">Si no es lo mismo, cree una nueva más abajo.</span></div>
+        </form>
+    </section>
+    <?php endif; ?>
 
     <p>Crear como:
         <?php foreach (TIPOS_BANDEJA as $clave => $texto): ?>
@@ -323,14 +398,14 @@ layout_inicio('Bandeja de correos', 'bandeja');
     <h1>Bandeja de correos</h1>
     <?php if (es_admin()): ?><div><a class="boton secundario" href="<?= e(url('correos')) ?>">Buzones y rutina</a></div><?php endif; ?>
 </div>
-<p class="tenue">Tareas, reuniones, gestiones y prospectos detectados en los correos del equipo. Nada se crea hasta que usted lo aprueba.
+<p class="tenue">Tareas, reuniones, gestiones y prospectos detectados en los correos del equipo. Lo que ya existe en el CRM se propone como complemento o actualización (o se omite); nada cambia hasta que usted lo aprueba.
     <?php $pendientes = bandeja_pendientes(); ?>
     <strong><?= $pendientes ?></strong> por revisar.</p>
 
 <form class="barra-lista" method="get">
     <input type="hidden" name="r" value="bandeja">
     <input type="search" name="q" value="<?= e(entrada('q')) ?>" placeholder="Buscar…">
-    <?= selector('estado', '', ['pendiente' => 'Por revisar', 'aprobada' => 'Aprobadas', 'rechazada' => 'Rechazadas', 'todas' => 'Todas'], $estado, false, 'aria-label="Estado"') ?>
+    <?= selector('estado', '', ['pendiente' => 'Por revisar', 'aprobada' => 'Aprobadas', 'rechazada' => 'Rechazadas', 'omitida' => 'Omitidas (ya existían)', 'todas' => 'Todas'], $estado, false, 'aria-label="Estado"') ?>
     <?= selector('tipo', '', TIPOS_BANDEJA, $tipoFiltro, 'Todos los tipos', 'aria-label="Tipo"') ?>
     <button type="submit" class="secundario">Filtrar</button>
 </form>
@@ -339,7 +414,7 @@ layout_inicio('Bandeja de correos', 'bandeja');
     <thead><tr><th>Tipo</th><th>Propuesta</th><th>Cuándo</th><th>Cliente mencionado</th><th>Correo de origen</th><th>Confianza</th><th></th></tr></thead>
     <tbody>
     <?php foreach ($filas as $b): ?>
-        <tr class="<?= $b['estado'] === 'rechazada' ? 'hecha' : '' ?>">
+        <tr class="<?= in_array($b['estado'], ['rechazada', 'omitida'], true) ? 'hecha' : '' ?>">
             <td><span class="badge"><?= e(TIPOS_BANDEJA[$b['tipo']] ?? $b['tipo']) ?></span></td>
             <td>
                 <?php if ($b['estado'] === 'pendiente'): ?>
@@ -347,6 +422,11 @@ layout_inicio('Bandeja de correos', 'bandeja');
                 <?php else: ?>
                     <?= e($b['titulo']) ?>
                 <?php endif; ?>
+                <?php if (($b['accion'] ?? 'nueva') !== 'nueva'): ?><br><span class="badge"><?= e(ACCIONES_BANDEJA[$b['accion']] ?? $b['accion']) ?></span><?php endif; ?>
+                <?php if ($b['destino_tipo'] && $b['destino_id'] && isset(DESTINOS_BANDEJA[$b['destino_tipo']])): [, , $lr, $la] = DESTINOS_BANDEJA[$b['destino_tipo']]; ?>
+                    <small><a href="<?= e(url($lr, ['a' => $la, 'id' => $b['destino_id']])) ?>" target="_blank" rel="noopener">ver <?= e(DESTINOS_BANDEJA[$b['destino_tipo']][4]) ?> existente</a></small>
+                <?php endif; ?>
+                <?php if ($b['motivo']): ?><br><small class="tenue"><?= e(mb_strimwidth($b['motivo'], 0, 160, '…')) ?></small><?php endif; ?>
                 <?php if ($b['detalle']): ?><br><small class="tenue"><?= e(mb_strimwidth($b['detalle'], 0, 140, '…')) ?></small><?php endif; ?>
             </td>
             <td class="nowrap"><?= $b['fecha_evento'] ? e(fecha($b['fecha_evento'], bandeja_con_hora($b['fecha_evento']))) : '<span class="tenue">—</span>' ?></td>
@@ -363,7 +443,7 @@ layout_inicio('Bandeja de correos', 'bandeja');
                     <?php endif; ?>
                     <br><small class="tenue">Aprobada<?= $b['revisor'] ? ' por ' . e($b['revisor']) : '' ?></small>
                 <?php else: ?>
-                    <?= boton_post(url('bandeja', ['a' => 'reabrir', 'id' => $b['id']]), 'Volver a revisar', 'chico secundario') ?>
+                    <?= boton_post(url('bandeja', ['a' => 'reabrir', 'id' => $b['id']]), $b['estado'] === 'omitida' ? 'Revisar igualmente' : 'Volver a revisar', 'chico secundario') ?>
                 <?php endif; ?>
             </td>
         </tr>
