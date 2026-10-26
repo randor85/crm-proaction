@@ -22,6 +22,7 @@ if ($enlace && es_post()) {
         q('UPDATE usuarios SET password_hash = ? WHERE id = ?', [password_hash($nueva, PASSWORD_DEFAULT), $enlace['usuario_id']]);
         q('UPDATE enlaces_clave SET usado_en = ? WHERE usuario_id = ? AND usado_en IS NULL', [ahora(), $enlace['usuario_id']]);
         q('DELETE FROM login_intentos WHERE ip = ?', [ip_cliente()]);
+        recordar_revocar_usuario((int)$enlace['usuario_id']);
         // Cerrar cualquier sesión que hubiera en este navegador
         $_SESSION = [];
         session_regenerate_id(true);

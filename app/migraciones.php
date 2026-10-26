@@ -384,6 +384,24 @@ const MIGRACIONES = [
         'ALTER TABLE bandeja_correos ADD COLUMN motivo VARCHAR(300) NULL',
         'ALTER TABLE bandeja_correos ADD COLUMN cambios TEXT NULL',
     ],
+
+    // «Mantener la sesión abierta en este dispositivo»: un registro por dispositivo recordado
+    '2026_10_26_sesiones_recordadas' => [
+        'CREATE TABLE sesiones_recordadas (
+            id             {ID},
+            usuario_id     {INT} NOT NULL,
+            selector       CHAR(24) NOT NULL,
+            validador_hash CHAR(64) NOT NULL,
+            dispositivo    VARCHAR(100) NULL,
+            ip             VARCHAR(45) NULL,
+            creado_en      DATETIME NOT NULL,
+            usado_en       DATETIME NULL,
+            expira_en      DATETIME NOT NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+        {FIN}',
+        'CREATE UNIQUE INDEX uq_sesiones_recordadas_selector ON sesiones_recordadas (selector)',
+        'CREATE INDEX idx_sesiones_recordadas_usuario ON sesiones_recordadas (usuario_id)',
+    ],
 ];
 
 function migracion_sql(string $sql): string

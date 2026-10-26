@@ -57,6 +57,7 @@ layout_inicio('Ingresar');
             <?= csrf_campo() ?>
             <?= campo('email', 'Correo electrónico', $email, 'email', 'required autofocus autocomplete="username"') ?>
             <?= campo('clave', 'Contraseña', '', 'password', 'required autocomplete="current-password"') ?>
+            <label class="check"><input type="checkbox" name="recordar" value="1" checked> Mantener la sesión abierta en este dispositivo</label>
             <button type="submit">Ingresar</button>
         </form>
         <p class="centrado"><a href="olvide.php">¿Olvidó su contraseña?</a></p>

@@ -17,6 +17,7 @@ if ($accion === 'guardar' && es_post()) {
         flash('error', 'Las contraseñas nuevas no coinciden.');
     } else {
         q('UPDATE usuarios SET password_hash = ? WHERE id = ?', [password_hash($nueva, PASSWORD_DEFAULT), $uid]);
+        recordar_revocar_usuario($uid, $_SESSION['recordar_selector'] ?? null); // los demás dispositivos deben volver a ingresar
         session_regenerate_id(true);
         unset($_SESSION['clave_debil']);
         flash('ok', 'Contraseña actualizada.');
@@ -62,7 +63,42 @@ if ($accion === '2fa_desactivar' && es_post()) {
     redirigir(url('perfil') . '#dos-pasos');
 }
 
+/* ---------- Dispositivos con la sesión abierta ---------- */
+if ($accion === 'recordar_activar' && es_post()) {
+    try {
+        recordar_olvidar_actual();
+        $_SESSION['recordar_selector'] = recordar_crear($uid);
+        flash('ok', 'Este dispositivo mantendrá la sesión abierta por ' . RECORDAR_DIAS . ' días.');
+    } catch (PDOException $ex) {
+        flash('error', 'No se pudo recordar el dispositivo.');
+    }
+    redirigir(url('perfil') . '#dispositivos');
+}
+if ($accion === 'cerrar_dispositivo' && es_post()) {
+    $sel = q_valor('SELECT selector FROM sesiones_recordadas WHERE id = ? AND usuario_id = ?', [entrada_int('id') ?? 0, $uid]);
+    if ($sel) {
+        q('DELETE FROM sesiones_recordadas WHERE selector = ?', [$sel]);
+        if ($sel === ($_SESSION['recordar_selector'] ?? null)) {
+            recordar_cookie('', time() - 3600);
+            unset($_SESSION['recordar_selector']);
+        }
+        flash('ok', 'Ese dispositivo deberá volver a ingresar con su contraseña.');
+    }
+    redirigir(url('perfil') . '#dispositivos');
+}
+if ($accion === 'cerrar_otros' && es_post()) {
+    recordar_revocar_usuario($uid, $_SESSION['recordar_selector'] ?? null);
+    flash('ok', 'Se cerró la sesión en todos los demás dispositivos.');
+    redirigir(url('perfil') . '#dispositivos');
+}
+
 $u = usuario_actual();
+try {
+    $dispositivos = q_todos('SELECT * FROM sesiones_recordadas WHERE usuario_id = ? AND expira_en >= ? ORDER BY usado_en DESC', [$uid, ahora()]);
+} catch (PDOException $ex) {
+    $dispositivos = [];
+}
+$selectorActual = $_SESSION['recordar_selector'] ?? null;
 $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 $base = ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/';
 $icalUrl = $u['ical_token'] ? $base . 'ical.php?t=' . $u['ical_token'] : null;
@@ -154,6 +190,29 @@ layout_inicio('Mi perfil');
         <p>Agrega un código desde su teléfono al iniciar sesión. <?= credenciales_requieren_2fa() ? '<strong>Es obligatoria para usar el gestor de credenciales.</strong>' : 'Es opcional, pero protege su cuenta aunque alguien descubra su contraseña.' ?></p>
         <?= boton_post(url('perfil', ['a' => '2fa_iniciar']), 'Activar verificación en dos pasos') ?>
     <?php endif; ?>
+</section>
+
+<section class="panel" id="dispositivos">
+    <h2>Dispositivos con la sesión abierta</h2>
+    <p class="tenue">En estos dispositivos el CRM entra solo durante <?= RECORDAR_DIAS ?> días, aunque se cierre el navegador.
+        Al cambiar la contraseña se cierran todos los demás.</p>
+    <?php if (!$dispositivos): ?>
+        <p class="vacio">Ningún dispositivo recordado.</p>
+    <?php else: ?>
+    <table><tbody>
+    <?php foreach ($dispositivos as $d): ?>
+        <tr>
+            <td><?= e($d['dispositivo'] ?: 'Dispositivo') ?><?= $d['selector'] === $selectorActual ? ' <span class="badge mandato-vigente">Este</span>' : '' ?>
+                <br><small class="tenue">Último uso <?= e(fecha($d['usado_en'], true)) ?> · desde <?= e(fecha($d['creado_en'])) ?> · vence <?= e(fecha($d['expira_en'])) ?></small></td>
+            <td class="derecha"><?= boton_post(url('perfil', ['a' => 'cerrar_dispositivo', 'id' => $d['id']]), 'Cerrar sesión', 'chico secundario') ?></td>
+        </tr>
+    <?php endforeach; ?>
+    </tbody></table>
+    <?php endif; ?>
+    <div class="acciones">
+        <?php if (!$selectorActual): ?><?= boton_post(url('perfil', ['a' => 'recordar_activar']), 'Mantener abierta en este dispositivo') ?><?php endif; ?>
+        <?php if (count($dispositivos) > ($selectorActual ? 1 : 0)): ?><?= boton_post(url('perfil', ['a' => 'cerrar_otros']), 'Cerrar en todos los demás', 'secundario', '¿Cerrar la sesión en todos los demás dispositivos?') ?><?php endif; ?>
+    </div>
 </section>
 
 <section class="panel" id="contrasena">

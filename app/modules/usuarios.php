@@ -46,6 +46,9 @@ if ($accion === 'guardar' && es_post()) {
         $datos['password_hash'] = password_hash($clave, PASSWORD_DEFAULT);
     }
 
+    if ($id && ($clave !== '' || !$datos['activo'])) {
+        recordar_revocar_usuario($id); // contraseña nueva o usuario desactivado: se cierran sus dispositivos
+    }
     if ($id) {
         actualizar('usuarios', $id, $datos);
         flash('ok', 'Usuario actualizado.' . ($clave !== '' ? ' Se cambió su contraseña.' : ''));

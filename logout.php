@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/app/bootstrap.php';
 
+recordar_olvidar_actual();
 $_SESSION = [];
 session_regenerate_id(true);
 session_destroy();
