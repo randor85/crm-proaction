@@ -137,18 +137,23 @@ function cobro_veces_anio(array $cobro): int
     return intdiv(12, MESES_POR_PERIODO[$cobro['periodicidad']] ?? 1);
 }
 
-/** Cobros activos (con datos del cliente) que corresponden a un período YYYY-MM. */
-function cobros_del_periodo(string $periodo): array
+/**
+ * Cobros activos (con datos del cliente) que corresponden a un período YYYY-MM.
+ * Con $conVariables agrega al final los cobros variables (comisiones, por tarea), que se eligen a mano.
+ */
+function cobros_del_periodo(string $periodo, bool $conVariables = false): array
 {
     $mes = (int)substr($periodo, 5, 2);
     $filas = q_todos(
         'SELECT k.*, c.nombre AS cliente, e.nombre AS empresa, e.identificacion AS rut,
             (SELECT f.id FROM facturas f WHERE f.cobro_id = k.id AND f.periodo = ? AND f.estado <> \'anulada\' ORDER BY f.id LIMIT 1) AS factura_id
          FROM cobros k JOIN clientes c ON c.id = k.cliente_id LEFT JOIN empresas e ON e.id = k.empresa_id
-         WHERE k.activo = 1 AND c.activo = 1 AND k.monto > 0
+         WHERE k.activo = 1 AND c.activo = 1 AND (k.monto > 0 OR k.periodicidad = \'variable\')
          ORDER BY c.nombre, k.concepto', [$periodo]);
-    return array_values(array_filter($filas, static fn($k) => $k['periodicidad'] === 'unico'
+    $programados = array_filter($filas, static fn($k) => (float)$k['monto'] > 0 && ($k['periodicidad'] === 'unico'
         ? ($k['periodo_unico'] ?? '') === $periodo : cobro_aplica($k, $mes)));
+    $variables = $conVariables ? array_filter($filas, static fn($k) => $k['periodicidad'] === 'variable') : [];
+    return array_values(array_merge($programados, $variables));
 }
 
 /* ---------------- Tarifas de prospectos (lo que se cotiza antes de ser cliente) ---------------- */

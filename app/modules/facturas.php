@@ -286,11 +286,11 @@ if ($accion === 'programar' || ($accion === 'generar' && es_post())) {
     $periodo = preg_match('/^\d{4}-\d{2}$/', entrada('periodo')) ? entrada('periodo') : date('Y-m');
     $fechaEmision = entrada_fecha('fecha_emision') ?? (substr(date('Y-m-d'), 0, 7) === $periodo ? date('Y-m-d') : $periodo . '-01');
     $uf = indicador('uf', $fechaEmision);
-    $cobros = cobros_del_periodo($periodo);
+    $cobros = cobros_del_periodo($periodo, true);
 
     if ($accion === 'generar') {
         $elegidos = array_map('intval', (array)($_POST['cobros'] ?? []));
-        $aGenerar = array_filter($cobros, static fn($k) => in_array((int)$k['id'], $elegidos, true) && !$k['factura_id']);
+        $aGenerar = array_filter($cobros, static fn($k) => in_array((int)$k['id'], $elegidos, true) && !$k['factura_id'] && (float)$k['monto'] > 0);
         if (!$aGenerar) {
             flash('error', 'No eligió ningún cobro pendiente.');
             redirigir(url('facturas', ['a' => 'programar', 'periodo' => $periodo]));
@@ -338,20 +338,22 @@ if ($accion === 'programar' || ($accion === 'generar' && es_post())) {
             <tbody>
             <?php $sumaNeto = 0;
             foreach ($cobros as $k):
-                $neto = $k['moneda'] === 'UF' ? ($uf ? round($k['monto'] * $uf) : null) : round((float)$k['monto']);
-                if (!$k['factura_id'] && $neto) { $sumaNeto += $neto; } ?>
+                $variable = $k['periodicidad'] === 'variable';
+                $neto = (float)$k['monto'] <= 0 ? null : ($k['moneda'] === 'UF' ? ($uf ? round($k['monto'] * $uf) : null) : round((float)$k['monto']));
+                if (!$k['factura_id'] && $neto && !$variable) { $sumaNeto += $neto; } ?>
                 <tr class="<?= $k['factura_id'] ? 'hecha' : '' ?>">
-                    <td class="casilla"><?php if (!$k['factura_id']): ?><input type="checkbox" name="cobros[]" value="<?= (int)$k['id'] ?>" checked aria-label="Generar <?= e($k['cliente']) ?>"><?php endif; ?></td>
+                    <td class="casilla"><?php if (!$k['factura_id'] && (float)$k['monto'] > 0): ?><input type="checkbox" name="cobros[]" value="<?= (int)$k['id'] ?>"<?= $variable ? '' : ' checked' ?> aria-label="Generar <?= e($k['cliente']) ?>"><?php endif; ?></td>
                     <td><?= enlace('clientes', $k['cliente_id'], $k['cliente']) ?></td>
                     <td><?= e(cobro_glosa($k, $periodo)) ?><br><small class="tenue"><?= e(TIPOS_DOCUMENTO_VENTA[$k['documento_tipo']] ?? '') ?></small></td>
                     <td><?= e(PERIODICIDADES[$k['periodicidad']] ?? '') ?></td>
                     <td class="derecha nowrap"><?= e(cobro_monto_texto($k)) ?></td>
                     <td class="derecha nowrap"><?= $neto !== null ? e(dinero($neto)) : '—' ?></td>
-                    <td class="nowrap"><?= $k['factura_id'] ? '<a href="' . e(url('facturas', ['a' => 'form', 'id' => $k['factura_id']])) . '">Ya generado</a>' : '' ?></td>
+                    <td class="nowrap"><?= $k['factura_id'] ? '<a href="' . e(url('facturas', ['a' => 'form', 'id' => $k['factura_id']])) . '">Ya generado</a>'
+                        : ($variable ? '<a href="' . e(url('facturas', ['a' => 'form', 'cobro_id' => $k['id']])) . '">Facturar con otro monto</a>' : '') ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
-            <tfoot><tr><th colspan="5">Total neto pendiente de generar</th><th class="derecha nowrap"><?= e(dinero($sumaNeto)) ?></th><th></th></tr></tfoot>
+            <tfoot><tr><th colspan="5">Total neto pendiente de generar <small class="tenue">(sin los variables)</small></th><th class="derecha nowrap"><?= e(dinero($sumaNeto)) ?></th><th></th></tr></tfoot>
         </table>
         <div class="fila-formulario formulario">
             <div><?= campo('fecha_emision', 'Fecha de emisión (define la UF)', $fechaEmision, 'date', 'required') ?></div>
