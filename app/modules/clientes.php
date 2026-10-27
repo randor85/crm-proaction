@@ -59,7 +59,7 @@ if ($accion === 'guardar' && es_post()) {
                 'cliente_id' => $id, 'concepto' => 'Honorarios asesoría tributaria', 'monto' => $monto,
                 'moneda' => entrada('honorario_moneda') === 'CLP' ? 'CLP' : 'UF',
                 'documento_tipo' => isset(TIPOS_DOCUMENTO_VENTA[$doc]) ? $doc : 'factura_afecta',
-                'periodicidad' => isset(PERIODICIDADES[$periodicidad]) ? $periodicidad : 'mensual',
+                'periodicidad' => isset(PERIODICIDADES_RECURRENTES[$periodicidad]) ? $periodicidad : 'mensual',
                 'mes_inicio' => max(1, min(12, entrada_int('mes_inicio') ?? 1)), 'activo' => 1,
                 'creado_en' => ahora(), 'actualizado_en' => ahora(),
             ]);
@@ -251,7 +251,7 @@ if ($accion === 'form') {
             <p class="tenue">Crea el primer plan de cobro. Después puede agregar otros (p. ej. la renta anual) desde la ficha del cliente.</p></div>
         <div><?= campo('honorario_monto', 'Monto neto por cobro', '', 'text', 'inputmode="decimal" placeholder="Ej.: 3,5"') ?></div>
         <div><?= selector('honorario_moneda', 'Moneda', ['UF' => 'UF', 'CLP' => 'Pesos'], 'UF', false) ?></div>
-        <div><?= selector('periodicidad', 'Se cobra', PERIODICIDADES, 'mensual', false) ?></div>
+        <div><?= selector('periodicidad', 'Se cobra', PERIODICIDADES_RECURRENTES, 'mensual', false) ?></div>
         <div><?= selector('mes_inicio', 'Mes (anual) o primer mes del ciclo', array_map('ucfirst', MESES), 1, false) ?></div>
         <div><?= selector('documento_tipo', 'Documento que se emite', TIPOS_DOCUMENTO_VENTA, 'factura_afecta', false) ?></div>
         <?php endif; ?>

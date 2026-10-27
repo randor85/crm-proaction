@@ -138,12 +138,19 @@ if ($accion === 'cobro_guardar' && es_post()) {
         'documento_tipo' => isset(TIPOS_DOCUMENTO_VENTA[$doc]) ? $doc : 'factura_afecta',
         'periodicidad'   => isset(PERIODICIDADES[$periodicidad]) ? $periodicidad : 'mensual',
         'mes_inicio'     => max(1, min(12, entrada_int('mes_inicio') ?? 1)),
+        'periodo_unico'  => preg_match('/^\d{4}-\d{2}$/', entrada('periodo_unico')) ? entrada('periodo_unico') : null,
         'activo'         => entrada('activo') === '1' ? 1 : 0,
         'notas'          => nulo_si_vacio(entrada('notas')),
         'actualizado_en' => ahora(),
     ];
-    if (!$datos['cliente_id'] || $datos['concepto'] === '' || $datos['monto'] <= 0) {
-        flash('error', 'Cliente, concepto y un monto mayor a cero son obligatorios.');
+    if ($datos['periodicidad'] !== 'unico') {
+        $datos['periodo_unico'] = null;
+    }
+    $error = !$datos['cliente_id'] || $datos['concepto'] === '' ? 'Cliente y concepto son obligatorios.'
+        : ($datos['monto'] <= 0 && $datos['periodicidad'] !== 'variable' ? 'Indique un monto mayor a cero (solo el cobro variable puede quedar sin monto).'
+        : ($datos['periodicidad'] === 'unico' && !$datos['periodo_unico'] ? 'Indique el mes en que se factura el cobro único.' : null));
+    if ($error) {
+        flash('error', $error);
         redirigir(url('facturas', ['a' => 'cobro_form', 'cobro_id' => $cobroId, 'cliente_id' => $datos['cliente_id']]));
     }
     if ($cobroId) {
@@ -172,7 +179,8 @@ if ($accion === 'cobro_form') {
     $k = $cobroId ? q_uno('SELECT * FROM cobros WHERE id = ?', [$cobroId]) : [
         'cliente_id' => entrada_int('cliente_id'), 'empresa_id' => null, 'concepto' => entrada('concepto') ?: 'Honorarios asesoría tributaria',
         'monto' => null, 'moneda' => 'UF', 'documento_tipo' => q_valor('SELECT documento_tipo FROM cobros WHERE cliente_id = ? ORDER BY id LIMIT 1', [entrada_int('cliente_id') ?? 0]) ?: 'factura_afecta',
-        'periodicidad' => entrada('periodicidad') ?: 'mensual', 'mes_inicio' => entrada_int('mes_inicio') ?? 1, 'activo' => 1,
+        'periodicidad' => entrada('periodicidad') ?: 'mensual', 'mes_inicio' => entrada_int('mes_inicio') ?? 1,
+        'periodo_unico' => date('Y-m'), 'activo' => 1,
     ];
     if ($cobroId && !$k) {
         redirigir(url('facturas', ['a' => 'cobros']));
@@ -201,11 +209,13 @@ if ($accion === 'cobro_form') {
             </datalist>
             <small class="tenue">Al facturar se agrega el período, p. ej. «<?= e(cobro_glosa(['concepto' => $k['concepto']] + $k, date('Y-m'))) ?>».</small>
         </div>
-        <div><?= campo('monto', 'Monto neto por cobro *', $k['monto'] ? numero_corto($k['monto']) : '', 'text', 'required inputmode="decimal" placeholder="Ej.: 3,5"') ?></div>
+        <div><?= campo('monto', 'Monto neto por cobro *', $k['monto'] > 0 ? numero_corto($k['monto']) : '', 'text', 'required inputmode="decimal" placeholder="' . ($k['moneda'] === 'CLP' ? 'Ej.: 150.000' : 'Ej.: 3,5') . '"') ?>
+            <small class="tenue" id="ayuda-monto"></small></div>
         <div><?= selector('moneda', 'Moneda', ['UF' => 'UF', 'CLP' => 'Pesos'], $k['moneda'], false) ?></div>
         <div><?= selector('periodicidad', 'Se cobra', PERIODICIDADES, $k['periodicidad'], false) ?></div>
-        <div><?= selector('mes_inicio', 'Mes (anual) o primer mes del ciclo', array_map('ucfirst', MESES), $k['mes_inicio'], false) ?>
+        <div id="campo-mes-inicio"><?= selector('mes_inicio', 'Mes (anual) o primer mes del ciclo', array_map('ucfirst', MESES), $k['mes_inicio'], false) ?>
             <small class="tenue" id="calendario-cobro"></small></div>
+        <div id="campo-periodo-unico" hidden><?= campo('periodo_unico', 'Mes en que se factura *', $k['periodo_unico'] ?? date('Y-m'), 'month') ?></div>
         <div><?= selector('documento_tipo', 'Documento que se emite', TIPOS_DOCUMENTO_VENTA, $k['documento_tipo'], false) ?></div>
         <div class="completo"><?= area('notas', 'Notas', $k['notas'] ?? '') ?></div>
         <div class="completo"><label class="check"><input type="checkbox" name="activo" value="1" <?= $k['activo'] ? 'checked' : '' ?>> Activo (se incluye al generar los cobros del mes)</label></div>
@@ -381,11 +391,11 @@ if ($accion === 'form') {
             'cobro_id'       => entrada_int('cobro_id') ? $cobro['id'] ?? null : null,
             'tipo_documento' => $cobro['documento_tipo'] ?? 'factura_afecta',
             'fecha_emision'  => date('Y-m-d'),
-            'periodo'        => date('Y-m'),
+            'periodo'        => ($cobro['periodicidad'] ?? '') === 'unico' && !empty($cobro['periodo_unico']) ? $cobro['periodo_unico'] : date('Y-m'),
             'moneda'         => $cobro['moneda'] ?? 'UF',
-            'monto_uf'       => $cobro && $esUf ? $cobro['monto'] : null,
+            'monto_uf'       => $cobro && $esUf && $cobro['monto'] > 0 ? $cobro['monto'] : null,
             'valor_uf'       => indicador('uf'),
-            'neto'           => $cobro && !$esUf ? $cobro['monto'] : null,
+            'neto'           => $cobro && !$esUf && $cobro['monto'] > 0 ? $cobro['monto'] : null,
             'estado'         => 'borrador',
             'glosa'          => $cobro ? cobro_glosa($cobro, date('Y-m')) : 'Honorarios asesoría tributaria',
         ];

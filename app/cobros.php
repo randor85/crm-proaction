@@ -6,13 +6,20 @@ declare(strict_types=1);
  * Un cobro se factura en los meses que le corresponden según su periodicidad,
  * contando desde `mes_inicio` (p. ej. trimestral desde enero = ene, abr, jul, oct;
  * anual con mes_inicio 4 = cada abril).
+ * «Única vez» se factura solo en el mes `periodo_unico` (YYYY-MM); «Variable» (comisiones, cobros por tarea)
+ * no se programa: se factura a pedido desde la ficha del cliente, con el monto de cada vez.
  */
 
-const PERIODICIDADES = [
+const PERIODICIDADES_RECURRENTES = [
     'mensual'    => 'Mensual',
     'trimestral' => 'Trimestral',
     'semestral'  => 'Semestral',
     'anual'      => 'Anual',
+];
+
+const PERIODICIDADES = PERIODICIDADES_RECURRENTES + [
+    'unico'    => 'Única vez',
+    'variable' => 'Variable (comisión o por tarea)',
 ];
 
 const MESES_POR_PERIODO = ['mensual' => 1, 'trimestral' => 3, 'semestral' => 6, 'anual' => 12];
@@ -23,6 +30,12 @@ const MESES = [1 => 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'juli
 /** Meses (1-12) en que se factura un cobro. */
 function cobro_meses(array $cobro): array
 {
+    if ($cobro['periodicidad'] === 'unico') {
+        return !empty($cobro['periodo_unico']) ? [(int)substr($cobro['periodo_unico'], 5, 2)] : [];
+    }
+    if ($cobro['periodicidad'] === 'variable') {
+        return [];
+    }
     $cada = MESES_POR_PERIODO[$cobro['periodicidad']] ?? 1;
     $inicio = max(1, min(12, (int)$cobro['mes_inicio']));
     $meses = [];
@@ -45,6 +58,13 @@ function cobro_calendario(array $cobro): string
     if ($p === 'mensual') {
         return 'todos los meses';
     }
+    if ($p === 'variable') {
+        return 'se factura a pedido';
+    }
+    if ($p === 'unico') {
+        $per = (string)($cobro['periodo_unico'] ?? '');
+        return $per ? 'en ' . MESES[(int)substr($per, 5, 2)] . ' ' . substr($per, 0, 4) : 'sin mes definido';
+    }
     $meses = cobro_meses($cobro);
     if ($p === 'anual') {
         return 'cada ' . MESES[$meses[0]];
@@ -54,6 +74,9 @@ function cobro_calendario(array $cobro): string
 
 function cobro_monto_texto(array $cobro): string
 {
+    if ((float)$cobro['monto'] <= 0) {
+        return 'Monto a definir';
+    }
     return $cobro['moneda'] === 'UF' ? 'UF ' . numero_corto($cobro['monto']) : dinero($cobro['monto']);
 }
 
@@ -61,6 +84,12 @@ function cobro_monto_texto(array $cobro): string
 function cobro_resumen(array $cobro): string
 {
     $p = $cobro['periodicidad'];
+    if ($p === 'variable') {
+        return 'cobro variable, se factura a pedido' . ((float)$cobro['monto'] > 0 ? ' (referencia ' . cobro_monto_texto($cobro) . ')' : '');
+    }
+    if ($p === 'unico') {
+        return cobro_monto_texto($cobro) . ' por única vez, ' . cobro_calendario($cobro);
+    }
     return cobro_monto_texto($cobro) . ' ' . mb_strtolower(PERIODICIDADES[$p] ?? $p)
         . ($p === 'mensual' ? '' : ' (' . cobro_calendario($cobro) . ')');
 }
@@ -70,7 +99,10 @@ function cobro_glosa(array $cobro, string $periodo): string
 {
     $anio = (int)substr($periodo, 0, 4);
     $mes = (int)substr($periodo, 5, 2);
-    $cada = MESES_POR_PERIODO[$cobro['periodicidad']] ?? 1;
+    if (!isset(MESES_POR_PERIODO[$cobro['periodicidad']])) {
+        return $cobro['concepto']; // única vez o variable: la glosa es el concepto
+    }
+    $cada = MESES_POR_PERIODO[$cobro['periodicidad']];
     if ($cada === 1) {
         $texto = MESES[$mes] . ' ' . $anio;
     } elseif ($cada === 12) {
@@ -86,9 +118,22 @@ function cobro_glosa(array $cobro, string $periodo): string
     return $cobro['concepto'] . ' ' . $texto;
 }
 
+/** Próximo YYYY-MM con ese mes (este año si aún no pasa, si no el siguiente). */
+function proximo_periodo(int $mes): string
+{
+    $anio = (int)date('Y') + ($mes < (int)date('n') ? 1 : 0);
+    return sprintf('%04d-%02d', $anio, $mes);
+}
+
 /** Veces que se factura en un año (para estimar el ingreso anual). */
 function cobro_veces_anio(array $cobro): int
 {
+    if ($cobro['periodicidad'] === 'unico') {
+        return substr((string)($cobro['periodo_unico'] ?? ''), 0, 4) === date('Y') ? 1 : 0;
+    }
+    if ($cobro['periodicidad'] === 'variable') {
+        return 0;
+    }
     return intdiv(12, MESES_POR_PERIODO[$cobro['periodicidad']] ?? 1);
 }
 
@@ -102,12 +147,13 @@ function cobros_del_periodo(string $periodo): array
          FROM cobros k JOIN clientes c ON c.id = k.cliente_id LEFT JOIN empresas e ON e.id = k.empresa_id
          WHERE k.activo = 1 AND c.activo = 1 AND k.monto > 0
          ORDER BY c.nombre, k.concepto', [$periodo]);
-    return array_values(array_filter($filas, static fn($k) => cobro_aplica($k, $mes)));
+    return array_values(array_filter($filas, static fn($k) => $k['periodicidad'] === 'unico'
+        ? ($k['periodo_unico'] ?? '') === $periodo : cobro_aplica($k, $mes)));
 }
 
 /* ---------------- Tarifas de prospectos (lo que se cotiza antes de ser cliente) ---------------- */
 
-const TARIFAS = PERIODICIDADES + ['unico' => 'Servicio único'];
+const TARIFAS = PERIODICIDADES_RECURRENTES + ['unico' => 'Servicio único'];
 
 const SERVICIOS = [
     'Contabilidad mensual completa', 'IVA mensual (F29)', 'Remuneraciones', 'Declaración de renta (F22)',

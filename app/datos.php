@@ -517,6 +517,7 @@ function convertir_en_cliente(int $oportunidadId): array
                 'concepto' => mb_substr($o['servicio'] ?: 'Honorarios asesoría tributaria', 0, 200),
                 'monto' => $o['monto'], 'moneda' => $o['tarifa_moneda'], 'documento_tipo' => 'factura_afecta',
                 'periodicidad' => $o['tarifa_tipo'], 'mes_inicio' => (int)($o['tarifa_mes'] ?: 1), 'activo' => 1,
+                'periodo_unico' => $o['tarifa_tipo'] === 'unico' ? proximo_periodo((int)($o['tarifa_mes'] ?: date('n'))) : null,
                 'creado_en' => ahora(), 'actualizado_en' => ahora(),
             ]);
         }

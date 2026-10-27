@@ -42,7 +42,23 @@
         var nombresMes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
         var cadaMeses = { mensual: 1, trimestral: 3, semestral: 6, anual: 12 };
         var mostrarCalendario = function () {
-            var cada = cadaMeses[formCobro.periodicidad.value] || 1;
+            var tipo = formCobro.periodicidad.value;
+            var unico = tipo === 'unico', variable = tipo === 'variable';
+            raiz.querySelector('#campo-mes-inicio').hidden = unico || variable;
+            raiz.querySelector('#campo-periodo-unico').hidden = !unico;
+            formCobro.periodo_unico.disabled = !unico;
+            formCobro.periodo_unico.required = unico;
+            formCobro.monto.required = !variable;
+            formCobro.monto.placeholder = formCobro.moneda.value === 'CLP' ? 'Ej.: 150.000' : 'Ej.: 3,5';
+            raiz.querySelector('#ayuda-monto').textContent = variable
+                ? 'Opcional: monto de referencia. Al facturar se ingresa el monto de cada vez.'
+                : (formCobro.moneda.value === 'CLP' ? 'En pesos, p. ej. 150.000.' : 'En UF, p. ej. 3,5.');
+            if (unico || variable) {
+                raiz.querySelector('#calendario-cobro').textContent = '';
+                formCobro.mes_inicio.disabled = true;
+                return;
+            }
+            var cada = cadaMeses[tipo] || 1;
             var inicio = parseInt(formCobro.mes_inicio.value, 10) || 1;
             var meses = [];
             for (var i = 0; i < 12 / cada; i++) { meses.push(((inicio - 1 + i * cada) % 12)); }

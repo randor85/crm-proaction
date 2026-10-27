@@ -402,6 +402,11 @@ const MIGRACIONES = [
         'CREATE UNIQUE INDEX uq_sesiones_recordadas_selector ON sesiones_recordadas (selector)',
         'CREATE INDEX idx_sesiones_recordadas_usuario ON sesiones_recordadas (usuario_id)',
     ],
+
+    // Planes de cobro «Única vez» (mes puntual) y «Variable» (comisiones, por tarea)
+    '2026_10_27_cobro_unico' => [
+        'ALTER TABLE cobros ADD COLUMN periodo_unico VARCHAR(7) NULL',
+    ],
 ];
 
 function migracion_sql(string $sql): string
