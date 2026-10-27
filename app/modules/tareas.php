@@ -65,6 +65,16 @@ if ($accion === 'guardar' && es_post()) {
         'recurrencia'    => isset(RECURRENCIAS[$recurrencia]) ? $recurrencia : 'ninguna',
         'actualizado_en' => ahora(),
     ];
+    // Prospecto nuevo escrito en la tarea («+ Nuevo prospecto / oportunidad…»)
+    $nuevoProspecto = trim(entrada('oportunidad_id_nueva'));
+    if (entrada('oportunidad_id') === '__otra__' && $nuevoProspecto !== '' && $datos['titulo'] !== '') {
+        $datos['oportunidad_id'] = insertar('oportunidades', [
+            'titulo' => mb_substr($nuevoProspecto, 0, 150), 'empresa_id' => $datos['empresa_id'],
+            'etapa' => 'prospecto', 'probabilidad' => 0, 'responsable_id' => $datos['responsable_id'] ?: $uid,
+            'creado_en' => ahora(), 'actualizado_en' => ahora(),
+        ]);
+        flash('ok', 'Prospecto creado: ' . mb_substr($nuevoProspecto, 0, 150) . '.');
+    }
     // Tarea de un prospecto: toma su RUT si no se eligió otro
     if ($datos['oportunidad_id'] && !$datos['empresa_id']) {
         $datos['empresa_id'] = q_valor('SELECT empresa_id FROM oportunidades WHERE id = ?', [$datos['oportunidad_id']]);
@@ -204,7 +214,14 @@ if ($accion === 'form') {
         </div>
         <div><?= selector('cliente_id', 'Cliente', opciones_clientes(), $t['cliente_id'] ?? '', 'Sin cliente (tarea interna)') ?></div>
         <div><?= selector_empresa('empresa_id', 'RUT / Empresa', $t['empresa_id'] ?? '', 'Todas / no aplica') ?></div>
-        <div><?= selector('oportunidad_id', 'Prospecto / oportunidad', opciones_oportunidades(true, (int)($t['oportunidad_id'] ?? 0)), $t['oportunidad_id'] ?? '', 'No es de un prospecto') ?></div>
+        <div><label for="f_oportunidad_id">Prospecto / oportunidad</label>
+            <div class="etiqueta-libre"><select id="f_oportunidad_id" name="oportunidad_id" data-etiqueta>
+                <option value="">No es de un prospecto</option>
+                <?php foreach (opciones_oportunidades(true, (int)($t['oportunidad_id'] ?? 0)) as $oid => $otitulo): ?>
+                    <option value="<?= (int)$oid ?>"<?= (string)$oid === (string)($t['oportunidad_id'] ?? '') ? ' selected' : '' ?>><?= e($otitulo) ?></option>
+                <?php endforeach; ?>
+                <option value="__otra__">+ Nuevo prospecto / oportunidad…</option>
+            </select><input type="text" name="oportunidad_id_nueva" maxlength="150" placeholder="Nombre del prospecto (empresa o persona)" hidden aria-label="Nuevo prospecto"></div></div>
         <div><?= selector('responsable_id', 'Responsable', opciones_responsables($t['cliente_id'] ? (int)$t['cliente_id'] : null), $t['responsable_id'] ?? '') ?></div>
         <div><?= campo('vencimiento', 'Vencimiento', $t['vencimiento'] ?? '', 'date') ?></div>
         <div><?= selector('estado', 'Estado', ESTADOS_TAREA, $t['estado'], false) ?></div>
