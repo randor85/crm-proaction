@@ -388,8 +388,65 @@ if ($filtroCliente) {
     $condiciones[] = 't.cliente_id = :cliente';
     $params['cliente'] = $filtroCliente;
 }
+// Rango de fechas de vencimiento
+$hoy = date('Y-m-d');
+$rango = entrada('rango');
+$rangoDesde = entrada_fecha('desde');
+$rangoHasta = entrada_fecha('hasta');
+$limitesRango = [
+    'hoy'       => [$hoy, $hoy],
+    '7dias'     => [$hoy, date('Y-m-d', strtotime('+7 days'))],
+    'semana'    => [date('Y-m-d', strtotime('monday this week')), date('Y-m-d', strtotime('sunday this week'))],
+    'mes'       => [date('Y-m-01'), date('Y-m-t')],
+    'mes_sig'   => [date('Y-m-01', strtotime('first day of next month')), date('Y-m-t', strtotime('first day of next month'))],
+    'mes_ant'   => [date('Y-m-01', strtotime('first day of last month')), date('Y-m-t', strtotime('first day of last month'))],
+    'entre'     => [$rangoDesde, $rangoHasta],
+][$rango] ?? null;
+if ($rango === 'sin_fecha') {
+    $condiciones[] = 't.vencimiento IS NULL';
+} elseif ($limitesRango) {
+    if ($limitesRango[0]) {
+        $condiciones[] = 't.vencimiento >= :rdesde';
+        $params['rdesde'] = $limitesRango[0];
+    }
+    if ($limitesRango[1]) {
+        $condiciones[] = 't.vencimiento <= :rhasta';
+        $params['rhasta'] = $limitesRango[1];
+    }
+}
 $where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
-$orden = $estado === 'completada' ? 't.completada_en DESC' : 't.vencimiento IS NULL, t.vencimiento, t.id';
+
+// Orden: clic en el encabezado de la columna (?orden=…&dir=asc|desc)
+const ORDEN_TAREAS = [
+    'vence'       => 't.vencimiento IS NULL, t.vencimiento',
+    'tarea'       => 't.titulo',
+    'cliente'     => 'c.nombre IS NULL, c.nombre',
+    'estado'      => "CASE t.estado WHEN 'pendiente' THEN 1 WHEN 'en_proceso' THEN 2 WHEN 'esperando' THEN 3 ELSE 4 END",
+    'prioridad'   => "CASE t.prioridad WHEN 'alta' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END",
+    'responsable' => 'u.nombre IS NULL, u.nombre',
+    'creada'      => 't.creado_en',
+];
+$ordenCol = isset(ORDEN_TAREAS[entrada('orden')]) ? entrada('orden') : '';
+$ordenDir = entrada('dir') === 'desc' ? 'DESC' : 'ASC';
+if ($ordenCol) {
+    // La dirección se aplica a la última expresión (los "IS NULL" dejan los vacíos al final)
+    $partes = explode(', ', ORDEN_TAREAS[$ordenCol]);
+    $partes[count($partes) - 1] .= " $ordenDir";
+    $orden = implode(', ', $partes) . ', t.vencimiento IS NULL, t.vencimiento, t.id';
+} else {
+    $orden = $estado === 'completada' ? 't.completada_en DESC' : 't.vencimiento IS NULL, t.vencimiento, t.id';
+}
+
+/** Encabezado que ordena la lista al hacer clic (conserva los filtros). */
+function th_orden(string $col, string $texto, string $actual, string $dir): string
+{
+    $activa = $col === $actual;
+    $nuevaDir = $activa && $dir === 'ASC' ? 'desc' : 'asc';
+    $q = ['orden' => $col, 'dir' => $nuevaDir] + array_diff_key($_GET, array_flip(['r', 'p', 'orden', 'dir']));
+    $flecha = $activa ? ($dir === 'ASC' ? ' ▲' : ' ▼') : '';
+    return '<th' . ($activa ? ' aria-sort="' . ($dir === 'ASC' ? 'ascending' : 'descending') . '"' : '') . '>'
+        . '<a class="orden' . ($activa ? ' activa' : '') . '" href="' . e(url('tareas', $q)) . '">' . e($texto) . $flecha . '</a></th>';
+}
 
 if ($accion === 'masivo' && es_post()) {
     $destino = $ids === null
@@ -446,24 +503,33 @@ layout_inicio('Tareas', 'tareas');
     selector('estado', '', ['abiertas' => 'Abiertas', 'vencidas' => 'Vencidas'] + ESTADOS_TAREA + ['todas' => 'Todas'], $estado, false, 'aria-label="Estado"'),
     selector('quien', '', ['mias' => 'Mías', 'todos' => 'De todo el equipo'] + opciones_usuarios(), $quien, false, 'aria-label="Responsable"'),
     selector('cliente_id', '', opciones_clientes(), $filtroCliente ?? '', 'Todos los clientes', 'aria-label="Cliente"'),
+    selector('rango', '', ['hoy' => 'Vencen hoy', '7dias' => 'Próximos 7 días', 'semana' => 'Esta semana', 'mes' => 'Este mes',
+        'mes_sig' => 'Próximo mes', 'mes_ant' => 'Mes pasado', 'sin_fecha' => 'Sin fecha', 'entre' => 'Entre fechas…'],
+        $rango, 'Cualquier fecha', 'aria-label="Rango de fechas" data-rango'),
+    '<span class="rango-fechas"' . ($rango === 'entre' ? '' : ' hidden') . '>'
+        . '<input type="date" name="desde" value="' . e($rangoDesde ?? '') . '" aria-label="Desde"> a '
+        . '<input type="date" name="hasta" value="' . e($rangoHasta ?? '') . '" aria-label="Hasta"></span>',
+    $ordenCol ? '<input type="hidden" name="orden" value="' . e($ordenCol) . '"><input type="hidden" name="dir" value="' . strtolower($ordenDir) . '">' : '',
 ]); ?>
-<p class="derecha"><a href="<?= e(url('tareas', ['a' => 'csv'] + array_intersect_key($_GET, array_flip(['q', 'estado', 'quien', 'cliente_id'])))) ?>">Exportar CSV</a></p>
+<p class="derecha"><a href="<?= e(url('tareas', ['a' => 'csv'] + array_intersect_key($_GET, array_flip(['q', 'estado', 'quien', 'cliente_id', 'rango', 'desde', 'hasta', 'orden', 'dir'])))) ?>">Exportar CSV</a></p>
 <form method="post" action="<?= e(url('tareas', ['a' => 'masivo'])) ?>" id="form-masivo">
 <?= csrf_campo() ?>
 <input type="hidden" name="volver" value="<?= e('index.php?' . http_build_query(['r' => 'tareas'] + $_GET)) ?>">
 <table>
-    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todas"></th><th>Vence</th><th>Tarea</th><th>Cliente / RUT</th><th>Estado</th><th>Responsable</th><th></th></tr></thead>
+    <thead><tr><th class="casilla"><input type="checkbox" data-marcar-todos aria-label="Marcar todas"></th><?= th_orden('vence', 'Vence', $ordenCol, $ordenDir) . th_orden('tarea', 'Tarea', $ordenCol, $ordenDir)
+        . th_orden('cliente', 'Cliente / RUT', $ordenCol, $ordenDir) . th_orden('estado', 'Estado', $ordenCol, $ordenDir)
+        . th_orden('prioridad', 'Prioridad', $ordenCol, $ordenDir) . th_orden('responsable', 'Responsable', $ordenCol, $ordenDir) ?><th></th></tr></thead>
     <tbody>
     <?php foreach ($tareas as $t): ?>
         <tr class="<?= $t['estado'] === 'completada' ? 'hecha' : clase_vencimiento($t['vencimiento'], $t['estado']) ?>">
             <td class="casilla"><input type="checkbox" name="ids[]" value="<?= (int)$t['id'] ?>" aria-label="Marcar <?= e($t['titulo']) ?>"></td>
             <td class="nowrap"><?= e(fecha($t['vencimiento'])) ?></td>
             <td><a href="<?= e(url('tareas', ['a' => 'ver', 'id' => $t['id']])) ?>"><?= e($t['titulo']) ?></a>
-                <?php if ($t['prioridad'] === 'alta'): ?><span class="badge prioridad-alta">Alta</span><?php endif; ?>
                 <?php if ($t['recurrencia'] !== 'ninguna'): ?><span class="tenue" title="<?= e(RECURRENCIAS[$t['recurrencia']]) ?>">↻</span><?php endif; ?>
                 <?php if ($t['n_gestiones']): ?><small class="tenue"> · <?= (int)$t['n_gestiones'] ?> gestión(es)</small><?php endif; ?></td>
             <td><?= enlace('clientes', $t['cliente_id'], $t['cliente']) ?><?php if ($t['empresa']): ?><br><small class="tenue"><?= e($t['empresa']) ?></small><?php endif; ?></td>
             <td><?= badge_tarea($t['estado']) ?></td>
+            <td><?= e(PRIORIDADES[$t['prioridad']] ?? '') ?></td>
             <td><?= e($t['responsable']) ?></td>
             <td class="derecha nowrap"><?php if ($t['estado'] !== 'completada'): ?>
                 <button type="submit" class="chico secundario" data-rapido name="estado" value="completada"
@@ -471,7 +537,7 @@ layout_inicio('Tareas', 'tareas');
             <?php endif; ?></td>
         </tr>
     <?php endforeach; ?>
-    <?php if (!$tareas): ?><tr><td colspan="7" class="vacio">No hay tareas con estos filtros.</td></tr><?php endif; ?>
+    <?php if (!$tareas): ?><tr><td colspan="8" class="vacio">No hay tareas con estos filtros.</td></tr><?php endif; ?>
     </tbody>
 </table>
 <?= paginacion_html($total) ?>

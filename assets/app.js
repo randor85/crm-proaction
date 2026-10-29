@@ -36,6 +36,16 @@
         });
     });
 
+    /* Filtro de tareas «Entre fechas…»: muestra los campos desde / hasta. */
+    raiz.querySelectorAll('select[data-rango]').forEach(function (sel) {
+        var campos = sel.parentNode.querySelector('.rango-fechas');
+        if (!campos) { return; }
+        sel.addEventListener('change', function () {
+            campos.hidden = sel.value !== 'entre';
+            if (!campos.hidden) { campos.querySelector('input').focus(); }
+        });
+    });
+
     /* Plan de cobro: mostrar en qué meses se factura según periodicidad y mes de inicio. */
     var formCobro = raiz.querySelector('#form-cobro');
     if (formCobro) {
