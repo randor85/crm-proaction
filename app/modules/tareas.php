@@ -42,7 +42,8 @@ function volver_desde_tarea(array $t): string
         return url();
     }
     if ($volver === 'lista') {
-        return url('tareas');
+        $ultima = (string)($_SESSION['tareas_lista'] ?? '');
+        return strpos($ultima, 'index.php?r=tareas') === 0 && strpos($ultima, 'a=') === false ? $ultima : url('tareas');
     }
     return url('tareas', ['a' => 'ver', 'id' => $t['id']]);
 }
@@ -286,6 +287,7 @@ if ($accion === 'ver' && $id) {
                 <?php foreach (ESTADOS_TAREA as $clave => $texto): if ($clave === $t['estado']) continue; ?>
                     <form method="post" action="<?= e(url('tareas', ['a' => 'estado', 'id' => $id])) ?>" class="en-linea">
                         <?= csrf_campo() ?><input type="hidden" name="estado" value="<?= e($clave) ?>">
+                        <?php if ($clave === 'completada'): ?><input type="hidden" name="volver" value="lista"><?php endif; ?>
                         <button type="submit" class="chico <?= $clave === 'completada' ? '' : 'secundario' ?>"><?= $clave === 'completada' ? '✓ Completar' : e($texto) ?></button>
                     </form>
                 <?php endforeach; ?>
@@ -495,6 +497,8 @@ $tareas = q_todos(
      $desdeTabla $where ORDER BY $orden LIMIT $limite OFFSET $desde",
     $params
 );
+
+$_SESSION['tareas_lista'] = 'index.php?' . http_build_query(['r' => 'tareas'] + array_diff_key($_GET, array_flip(['r', 'a', 'id'])));
 
 layout_inicio('Tareas', 'tareas');
 ?>

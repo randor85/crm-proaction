@@ -195,7 +195,9 @@
     principal.addEventListener('submit', function (ev) {
         var form = ev.target;
         var rapido = ev.submitter && ev.submitter.hasAttribute('data-rapido');
-        if (ev.defaultPrevented || !document.body.classList.contains('con-panel') || !(rapido || form.matches('form.en-linea'))
+        // «✓ Hecho» se guarda sin salir de la lista, con o sin el panel abierto
+        var enLista = rapido && esLista;
+        if (ev.defaultPrevented || !(enLista || document.body.classList.contains('con-panel')) || !(rapido || form.matches('form.en-linea'))
             || (form.getAttribute('method') || '').toLowerCase() !== 'post') { return; }
         ev.preventDefault();
         var datos = new FormData(form);
@@ -242,6 +244,7 @@
         }
         ev.preventDefault();
         if (ev.submitter && ev.submitter.disabled !== undefined) { ev.submitter.disabled = true; }
+        if (accion.searchParams.get('r') === 'tareas' && accion.searchParams.get('a') === 'estado') { datos.set('volver', 'ficha'); } // en el panel se queda en la ficha
         cargar(accion, { datos: datos, sinHistorial: true });
     }
 
