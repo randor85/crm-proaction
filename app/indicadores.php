@@ -52,14 +52,25 @@ function indicador(string $codigo, ?string $fecha = null): ?float
     return $valor;
 }
 
-/** Consulta mindicador.cl. */
+/**
+ * Consulta las fuentes en orden hasta obtener el valor: mindicador.cl, findic.cl (mismo formato)
+ * y, solo para la UF, la tabla oficial del SII.
+ */
 function indicador_consultar(string $codigo, string $fecha): ?float
 {
-    $url = 'https://mindicador.cl/api/' . $codigo . '/' . date('d-m-Y', strtotime($fecha));
-    $json = http_get($url);
-    if ($json === null) {
-        return null;
+    foreach (['https://mindicador.cl/api/', 'https://findic.cl/api/'] as $base) {
+        $json = http_get($base . $codigo . '/' . date('d-m-Y', strtotime($fecha)), 5);
+        $valor = $json === null ? null : indicador_de_serie($json, $codigo, $fecha);
+        if ($valor !== null) {
+            return $valor;
+        }
     }
+    return $codigo === 'uf' ? indicador_uf_sii($fecha) : null;
+}
+
+/** Valor de la respuesta JSON de mindicador/findic. */
+function indicador_de_serie(string $json, string $codigo, string $fecha): ?float
+{
     $datos = json_decode($json, true);
     $serie = $datos['serie'][0] ?? null;
     if (!$serie || !isset($serie['valor'])) {
@@ -70,6 +81,26 @@ function indicador_consultar(string $codigo, string $fecha): ?float
         return null;
     }
     return (float)$serie['valor'];
+}
+
+/** UF del día según la tabla anual publicada por el SII (fila = día, columna = mes). */
+function indicador_uf_sii(string $fecha): ?float
+{
+    [$anio, $mes, $dia] = array_map('intval', explode('-', $fecha));
+    $html = http_get("https://www.sii.cl/valores_y_fechas/uf/uf$anio.htm", 8);
+    if ($html === null || !preg_match_all('#<tr>\s*<th[^>]*>\s*(\d+)\s*</th>(.*?)</tr>#s', $html, $filas, PREG_SET_ORDER)) {
+        return null;
+    }
+    foreach ($filas as $fila) {
+        if ((int)$fila[1] !== $dia) {
+            continue;
+        }
+        preg_match_all('#<td[^>]*>(.*?)</td>#s', $fila[2], $celdas);
+        $texto = trim(strip_tags($celdas[1][$mes - 1] ?? ''));
+        $numero = str_replace(['.', ','], ['', '.'], $texto);
+        return is_numeric($numero) && (float)$numero > 0 ? (float)$numero : null;
+    }
+    return null;
 }
 
 /** Guarda un valor manual (cuando la fuente no responde). */
